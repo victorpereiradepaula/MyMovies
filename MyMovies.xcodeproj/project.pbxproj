@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4AB0439949E4EF9CEBC4C784 /* Pods_MyMoviesUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AD532D5FCBB16E63769F0285 /* Pods_MyMoviesUITests.framework */; };
+		571579081EA7DCD4008BBC85 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 571579071EA7DCD4008BBC85 /* Extensions.swift */; };
 		5720489F1E8E9C5E009EE1F9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5720489E1E8E9C5E009EE1F9 /* AppDelegate.swift */; };
 		572048A41E8E9C5E009EE1F9 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 572048A21E8E9C5E009EE1F9 /* Main.storyboard */; };
 		572048A71E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 572048A51E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld */; };
@@ -45,6 +46,7 @@
 
 /* Begin PBXFileReference section */
 		3291E759AADC6E2525D70467 /* Pods-MyMovies.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MyMovies.debug.xcconfig"; path = "Pods/Target Support Files/Pods-MyMovies/Pods-MyMovies.debug.xcconfig"; sourceTree = "<group>"; };
+		571579071EA7DCD4008BBC85 /* Extensions.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		5720489B1E8E9C5E009EE1F9 /* MyMovies.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyMovies.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5720489E1E8E9C5E009EE1F9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		572048A31E8E9C5E009EE1F9 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 				572048A21E8E9C5E009EE1F9 /* Main.storyboard */,
 				572048A51E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld */,
 				57997D731E929F940068CF26 /* Constants.swift */,
+				571579071EA7DCD4008BBC85 /* Extensions.swift */,
 			);
 			name = ToolKit;
 			sourceTree = "<group>";
@@ -508,6 +511,7 @@
 				5720489F1E8E9C5E009EE1F9 /* AppDelegate.swift in Sources */,
 				572048D41E8E9CCB009EE1F9 /* DetailsViewController.swift in Sources */,
 				572048D81E8E9D01009EE1F9 /* DetailsView.swift in Sources */,
+				571579081EA7DCD4008BBC85 /* Extensions.swift in Sources */,
 				57997D741E929F940068CF26 /* Constants.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -16,7 +16,6 @@ class SearchTableViewCell: UITableViewCell {
         let imageView = UIImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.backgroundColor = .lightGray
-        imageView.contentMode = .scaleToFill
         return imageView
     }()
     

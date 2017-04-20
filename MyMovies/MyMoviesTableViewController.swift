@@ -11,6 +11,7 @@ import RealmSwift
 
 class MyMoviesTableViewController: UITableViewController {
     
+    let detailsViewController = DetailsViewController()
     var movies: [Movie]!
     
     override func viewDidLoad() {
@@ -31,12 +32,21 @@ class MyMoviesTableViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "myMoviesCellIdentifier", for: indexPath) as! MyMoviesTableViewCell
-        cell.director.text = movies[indexPath.row].director
-        cell.genre.text = movies[indexPath.row].genre
-        cell.language.text = movies[indexPath.row].language
-        cell.poster.image =  UIImage(data: movies[indexPath.row].poster as Data)
-        cell.title.text = movies[indexPath.row].title
-        cell.year.text = String(movies[indexPath.row].year)
+        let index = indexPath.row
+        cell.director.text = movies[index].director
+        cell.genre.text = movies[index].genre
+        cell.language.text = movies[index].language
+        
+        let moviePoster = movies[index].poster
+        cell.poster.image =  UIImage(data: moviePoster as Data)
+        if moviePoster != DEFAULT_IMAGE{
+            cell.poster.contentMode = .scaleToFill
+        } else {
+            cell.poster.contentMode = .center
+        }
+        
+        cell.title.text = movies[index].title
+        cell.year.text = String(movies[index].year)
         return cell
     }
     
@@ -46,17 +56,17 @@ class MyMoviesTableViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, editActionsForRowAt: IndexPath) -> [UITableViewRowAction]? {
         let imdbID = self.movies[editActionsForRowAt.row].imdbID
-        let more = UITableViewRowAction(style: .normal, title: "Detalhes") { action, index in
-            let detailsViewController = DetailsViewController()
-            detailsViewController.movie = self.movies[editActionsForRowAt.row]
-            detailsViewController.canFavorite = true
-            self.navigationController?.pushViewController(detailsViewController, animated: true)
+        
+        let details = UITableViewRowAction(style: .normal, title: "Detalhes") { action, index in
+            self.detailsViewController.setDetails(movie: self.movies[editActionsForRowAt.row])
+            self.navigationController?.pushViewController(self.detailsViewController, animated: true)
         }
-        more.backgroundColor = .orange
+        details.backgroundColor = .orange
         
         let favorite = UITableViewRowAction(style: .normal, title: "Remover") { action, index in
             let setFavoriteAlert = UIAlertController(title: "Favorito removido", message: "Favorito removido com sucesso.", preferredStyle: .alert)
             setFavoriteAlert.addAction(UIAlertAction(title:"Ok", style:UIAlertActionStyle.default){ action in
+                self.tableView.isEditing = false
                 let realm = try! Realm()
                 realm.refresh()
                 try! realm.write {
@@ -69,7 +79,7 @@ class MyMoviesTableViewController: UITableViewController {
             
         }
         favorite.backgroundColor = .black
-        return [favorite, more]
+        return [favorite, details]
     }
     
     override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {

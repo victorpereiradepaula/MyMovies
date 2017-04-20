@@ -6,9 +6,8 @@
 //  Copyright © 2017 Victor. All rights reserved.
 //
 
-import RealmSwift
 import UIKit
-
+import RealmSwift
 class Constants {
     
     static func isFavorite(imdbID: String) -> Bool {
@@ -26,16 +25,14 @@ class Constants {
 let IMAGE_BACKGROUND = UIColor.lightGray
 let DEFAULT_BACKGROUNDCOLOR = UIColor.black
 let DEFAULT_TEXT_COLOR = UIColor.orange
+let DEFAULT_IMAGE = NSData(data: UIImagePNGRepresentation(#imageLiteral(resourceName: "no_image"))!)
 
-extension UITableViewController {
-    
-    func unfavorite(imdbID: String) {
-        let realm = try! Realm()
-        try! realm.write {
-            realm.delete(realm.object(ofType: Movie.self, forPrimaryKey: imdbID)!)
-        }
-        let addMovieAlert = UIAlertController(title: "Favorito removido", message: "Favorito rmovido com sucesso.", preferredStyle: .alert)
-        addMovieAlert.addAction(UIAlertAction(title: "Ok", style: .default, handler: nil))
-        self.present(addMovieAlert, animated: true, completion: nil)
-    }
-}
+let searchURL = "http://www.omdbapi.com/?s="
+let detailedURL = "http://www.omdbapi.com/?i="
+let typeURL = "&type=movie"
+let pageURL = "&page="
+
+
+typealias JSONStandard = [String: AnyObject]
+
+

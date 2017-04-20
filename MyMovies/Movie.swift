@@ -20,7 +20,7 @@ class Movie: Object {
     dynamic var actors: String = ""
     dynamic var awards: String = ""
     dynamic var plot: String = ""
-    dynamic var poster: NSData = UIImagePNGRepresentation(#imageLiteral(resourceName: "no_image"))! as NSData
+    dynamic var poster = NSData()
     
     override static func primaryKey() -> String? {
         return "imdbID"

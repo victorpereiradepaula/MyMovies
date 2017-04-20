@@ -17,8 +17,6 @@ class MyMoviesTableViewCell: UITableViewCell {
         let imageView = UIImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.backgroundColor = .lightGray
-        imageView.contentMode = .scaleToFill
-        imageView.backgroundColor = .black
         return imageView
     }()
     

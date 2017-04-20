@@ -27,9 +27,6 @@ class DetailsViewController: UIViewController {
     }
     
     override func viewWillAppear(_ animated: Bool) {
-        detailsView.poster.image = UIImage(data: movie.poster as Data)
-        detailsView.title.text = movie.title
-        detailsView.year.text = movie.year
         if !canFavorite {
             detailsView.director.text = "Loading..."
             detailsView.genre.text = "Loading..."
@@ -37,32 +34,77 @@ class DetailsViewController: UIViewController {
             detailsView.plot.text = "Loading..."
             detailsView.language.text = "Loading..."
             detailsView.actors.text = "Loading..."
-        } else {
-            reloadData()
         }
         setupFavoriteButton()
     }
     
-    func reloadData() {
+    func setMainInformation(imdbID: String, poster: NSData, title: String, year: String) {
+        movie.imdbID = imdbID
+        movie.poster = poster
+        movie.title = title
+        movie.year = year
+        
+        detailsView.poster.image = UIImage(data: poster as Data)
+        if poster != DEFAULT_IMAGE {
+            detailsView.poster.contentMode = .scaleToFill
+        } else {
+            detailsView.poster.contentMode = .center
+        }
+        
+        detailsView.title.text = title
+        detailsView.year.text = year
+        
+        canFavorite = false
+    }
+    
+    private func setDetails() {
         detailsView.director.text = movie.director
         detailsView.genre.text = movie.genre
         detailsView.awards.text = movie.awards
         detailsView.plot.text = movie.plot
         detailsView.language.text = movie.language
         detailsView.actors.text = movie.actors
+    }
+    
+    func setDetails(movie: Movie) {
+        
+        setMainInformation(imdbID: movie.imdbID, poster: movie.poster, title: movie.title, year: movie.year)
+        
+        self.movie.director = movie.director
+        self.movie.genre = movie.genre
+        self.movie.awards = movie.awards
+        self.movie.plot = movie.plot
+        self.movie.language = movie.language
+        self.movie.actors = movie.actors
+        
+        setDetails()
+        
+        canFavorite = true
+    }
+    
+    func setDetails(director: String, genre: String, awards: String, plot: String, language: String, actors: String) {
+        self.movie.director = director
+        self.movie.genre = genre
+        self.movie.awards = awards
+        self.movie.plot = plot
+        self.movie.language = language
+        self.movie.actors = actors
+        
+        setDetails()
+        
         canFavorite = true
     }
     
 }
 
 extension DetailsViewController {
-    func favorite() {
+    func addFavorite() {
         if canFavorite {
             let realm = try! Realm()
             try! realm.write {
-                realm.create(Movie.self, value: ["poster": movie.poster, "title": movie.title, "year": movie.year, "genre": movie.genre, "imdbID": movie.imdbID, "director": movie.director, "actors": movie.actors, "awards": movie.awards, "language": movie.language, "plot": movie.plot], update: false)
+                realm.add(movie, update: true)
             }
-            let setFavoriteAlert = UIAlertController(title: "Favorito adicionado", message: "Novo favorito adicionado com sucesso.", preferredStyle: .alert)
+            let setFavoriteAlert = UIAlertController(title: "Favorito adicionado", message: "\(movie.title) adicionado aos favoritos.", preferredStyle: .alert)
             setFavoriteAlert.addAction(UIAlertAction(title: "Ok", style: .default, handler: nil))
             present(setFavoriteAlert, animated: true, completion: nil)
             setupFavoriteButton()
@@ -91,7 +133,7 @@ extension DetailsViewController {
             self.navigationItem.rightBarButtonItem = UIBarButtonItem(image: #imageLiteral(resourceName: "icon_favorite"), style: .plain, target: self, action: #selector(DetailsViewController.unfavorite))
         }
         else {
-            self.navigationItem.rightBarButtonItem = UIBarButtonItem(image: #imageLiteral(resourceName: "icon_favorite_border"), style: .plain, target: self, action: #selector(DetailsViewController.favorite))
+            self.navigationItem.rightBarButtonItem = UIBarButtonItem(image: #imageLiteral(resourceName: "icon_favorite_border"), style: .plain, target: self, action: #selector(DetailsViewController.addFavorite))
         }
     }
 }
