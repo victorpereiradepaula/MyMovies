@@ -44,7 +44,6 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
     func prepareSearchURL() -> String {
         let fixText = currentSearchText.replacingOccurrences(of: " ", with: "+")
         let url = searchURL + fixText.lowercased() + typeURL + pageURL + String(currentPage)
-        print(url)
         return url
     }
     

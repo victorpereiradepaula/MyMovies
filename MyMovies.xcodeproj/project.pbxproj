@@ -10,7 +10,6 @@
 		4AB0439949E4EF9CEBC4C784 /* Pods_MyMoviesUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AD532D5FCBB16E63769F0285 /* Pods_MyMoviesUITests.framework */; };
 		571579081EA7DCD4008BBC85 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 571579071EA7DCD4008BBC85 /* Extensions.swift */; };
 		5720489F1E8E9C5E009EE1F9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5720489E1E8E9C5E009EE1F9 /* AppDelegate.swift */; };
-		572048A41E8E9C5E009EE1F9 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 572048A21E8E9C5E009EE1F9 /* Main.storyboard */; };
 		572048A71E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 572048A51E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld */; };
 		572048A91E8E9C5E009EE1F9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 572048A81E8E9C5E009EE1F9 /* Assets.xcassets */; };
 		572048B71E8E9C5E009EE1F9 /* MyMoviesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572048B61E8E9C5E009EE1F9 /* MyMoviesTests.swift */; };
@@ -23,6 +22,7 @@
 		572048DF1E8EB84A009EE1F9 /* Movie.swift in Sources */ = {isa = PBXBuildFile; fileRef = 572048DE1E8EB84A009EE1F9 /* Movie.swift */; };
 		57301E9C1E93CBF1002E79D7 /* SearchTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57301E9B1E93CBF1002E79D7 /* SearchTableViewCell.swift */; };
 		57997D741E929F940068CF26 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57997D731E929F940068CF26 /* Constants.swift */; };
+		57DC7C7A1EA927DB00063AB1 /* Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 57DC7C791EA927DB00063AB1 /* Launch Screen.storyboard */; };
 		6E6D5B3841FAA025CBBBB028 /* Pods_MyMovies.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 57FF882C3D6D47C97ABE09C1 /* Pods_MyMovies.framework */; };
 		D747B085114F900D3463529D /* Pods_MyMoviesTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8FE1D83280191F21D6FA7457 /* Pods_MyMoviesTests.framework */; };
 /* End PBXBuildFile section */
@@ -49,7 +49,6 @@
 		571579071EA7DCD4008BBC85 /* Extensions.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		5720489B1E8E9C5E009EE1F9 /* MyMovies.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyMovies.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5720489E1E8E9C5E009EE1F9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		572048A31E8E9C5E009EE1F9 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		572048A61E8E9C5E009EE1F9 /* MyMovies.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = MyMovies.xcdatamodel; sourceTree = "<group>"; };
 		572048A81E8E9C5E009EE1F9 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		572048AD1E8E9C5E009EE1F9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -67,6 +66,7 @@
 		572048DE1E8EB84A009EE1F9 /* Movie.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Movie.swift; sourceTree = "<group>"; };
 		57301E9B1E93CBF1002E79D7 /* SearchTableViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SearchTableViewCell.swift; sourceTree = "<group>"; };
 		57997D731E929F940068CF26 /* Constants.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		57DC7C791EA927DB00063AB1 /* Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "Launch Screen.storyboard"; sourceTree = "<group>"; };
 		57FF882C3D6D47C97ABE09C1 /* Pods_MyMovies.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_MyMovies.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		722BB6CE49BD712D72E58505 /* Pods-MyMoviesTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MyMoviesTests.release.xcconfig"; path = "Pods/Target Support Files/Pods-MyMoviesTests/Pods-MyMoviesTests.release.xcconfig"; sourceTree = "<group>"; };
 		8ED0B51F1C0D8373F0EC195E /* Pods-MyMovies.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MyMovies.release.xcconfig"; path = "Pods/Target Support Files/Pods-MyMovies/Pods-MyMovies.release.xcconfig"; sourceTree = "<group>"; };
@@ -134,7 +134,7 @@
 				5720489E1E8E9C5E009EE1F9 /* AppDelegate.swift */,
 				572048A81E8E9C5E009EE1F9 /* Assets.xcassets */,
 				572048AD1E8E9C5E009EE1F9 /* Info.plist */,
-				572048A21E8E9C5E009EE1F9 /* Main.storyboard */,
+				57DC7C791EA927DB00063AB1 /* Launch Screen.storyboard */,
 				572048A51E8E9C5E009EE1F9 /* MyMovies.xcdatamodeld */,
 				57997D731E929F940068CF26 /* Constants.swift */,
 				571579071EA7DCD4008BBC85 /* Extensions.swift */,
@@ -338,8 +338,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				57DC7C7A1EA927DB00063AB1 /* Launch Screen.storyboard in Resources */,
 				572048A91E8E9C5E009EE1F9 /* Assets.xcassets in Resources */,
-				572048A41E8E9C5E009EE1F9 /* Main.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -546,17 +546,6 @@
 			targetProxy = 572048BE1E8E9C5E009EE1F9 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin PBXVariantGroup section */
-		572048A21E8E9C5E009EE1F9 /* Main.storyboard */ = {
-			isa = PBXVariantGroup;
-			children = (
-				572048A31E8E9C5E009EE1F9 /* Base */,
-			);
-			name = Main.storyboard;
-			sourceTree = "<group>";
-		};
-/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		572048C41E8E9C5E009EE1F9 /* Debug */ = {

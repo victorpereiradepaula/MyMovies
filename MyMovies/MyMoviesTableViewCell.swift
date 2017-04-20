@@ -89,7 +89,7 @@ class MyMoviesTableViewCell: UITableViewCell {
     override init(style: UITableViewCellStyle, reuseIdentifier: String?) {
         
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        
+        self.selectionStyle = .none
         backgroundColor = .white
         
         let labelStackView: UIStackView = {
