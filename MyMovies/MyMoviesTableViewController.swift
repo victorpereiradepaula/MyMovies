@@ -18,7 +18,6 @@ class MyMoviesTableViewController: UITableViewController {
         super.viewDidLoad()
         navigationItem.title = "Favoritos"
         tableView.register(MyMoviesTableViewCell.self, forCellReuseIdentifier: "myMoviesCellIdentifier")
-        tableView.tableFooterView = UIView()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -47,6 +46,9 @@ class MyMoviesTableViewController: UITableViewController {
         
         cell.title.text = movies[index].title
         cell.year.text = String(movies[index].year)
+        
+        cell.separatorInset = UIEdgeInsets.zero
+        
         return cell
     }
     
@@ -61,9 +63,9 @@ class MyMoviesTableViewController: UITableViewController {
             self.detailsViewController.setDetails(movie: self.movies[editActionsForRowAt.row])
             self.navigationController?.pushViewController(self.detailsViewController, animated: true)
         }
-        details.backgroundColor = .orange
+        details.backgroundColor = .black
         
-        let favorite = UITableViewRowAction(style: .normal, title: "Remover") { action, index in
+        let favorite = UITableViewRowAction(style: .destructive, title: "Remover") { action, index in
             let setFavoriteAlert = UIAlertController(title: "Favorito removido", message: "Favorito removido com sucesso.", preferredStyle: .alert)
             setFavoriteAlert.addAction(UIAlertAction(title:"Ok", style:UIAlertActionStyle.default){ action in
                 self.tableView.isEditing = false
@@ -78,7 +80,6 @@ class MyMoviesTableViewController: UITableViewController {
             self.present(setFavoriteAlert, animated: true, completion: nil)
             
         }
-        favorite.backgroundColor = .black
         return [favorite, details]
     }
     
@@ -90,6 +91,11 @@ class MyMoviesTableViewController: UITableViewController {
         movies = []
         let realm = try! Realm()
         movies.append(contentsOf: realm.objects(Movie.self))
+        if movies.count == 0 {
+            self.setMessageOnTableFooterView(text: "Você não possui nenhum favorito.")
+        } else {
+            self.setMessageOnTableFooterView(text: "")
+        }
     }
 
 }
