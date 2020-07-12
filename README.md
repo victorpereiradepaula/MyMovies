@@ -29,8 +29,8 @@ So, if you want to use it, good luck and keep refactoring.
 
 ## Sample images
 
-![Search results](/img/list.png)
-![Add favorite](/img/list.png)
+![Search results](/img/search.png)
+![Add favorite](/img/add.png)
 ![Remove favorite](/img/remove.png)
 ![List favorites](/img/favorites.png)
 ![Details](/img/details.png)
