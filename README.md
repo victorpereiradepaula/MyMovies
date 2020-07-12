@@ -8,7 +8,7 @@ This app allows you to search and save movies informations obtained by the OMDb 
 ![iOS 11.0+](https://img.shields.io/badge/iOS-11.0%2B-9cf)
 ![Deprecated](https://img.shields.io/badge/-deprecated-critical)
 
-# Table of Contents
+## Table of Contents
 
 1. [Warning](#warning)
 2. [Features](#features)
