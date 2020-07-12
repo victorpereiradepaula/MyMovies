@@ -18,21 +18,22 @@
 
 #import <Realm/RLMRealmConfiguration.h>
 
-#import "RLMSyncUtil.h"
+#import <Realm/RLMSyncUtil.h>
 
 @class RLMSyncConfiguration;
 
-/// :nodoc:
+/// Realm configuration options related to Sync.
 @interface RLMRealmConfiguration (Sync)
 
 NS_ASSUME_NONNULL_BEGIN
 
 /**
- A configuration object representing configuration state for Realms intended to sync with a Realm Object Server.
- 
- This property is mutually exclusive with both `inMemoryIdentifier` and `fileURL`; setting one will nil out the other
- two.
- 
+ A configuration object representing configuration state for Realms intended
+ to sync with a Realm Object Server.
+
+ This property is mutually exclusive with both `inMemoryIdentifier` and `fileURL`;
+ setting any one of the three properties will automatically nil out the other two.
+
  @see `RLMSyncConfiguration`
  */
 @property (nullable, nonatomic) RLMSyncConfiguration *syncConfiguration;

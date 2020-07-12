@@ -21,13 +21,16 @@
 
 #include "index_set.hpp"
 
+#include <realm/keys.hpp>
+
 #include <memory>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace realm {
 // BindingContext is the extension point for adding binding-specific behavior to
-// a SharedRealm. It can be used to store additonal data associated with the
+// a SharedRealm. It can be used to store additional data associated with the
 // Realm which is needed by the binding, and there are several methods which
 // can be overridden to receive notifications of state changes within the Realm.
 //
@@ -68,15 +71,21 @@ namespace realm {
 //     std::list<std::function<void ()>> m_registered_notifications;
 // };
 class Realm;
+class Schema;
 class BindingContext {
 public:
     virtual ~BindingContext() = default;
 
     std::weak_ptr<Realm> realm;
 
-    // If the user adds a notification handler to the Realm, will it ever
-    // actually be called?
-    virtual bool can_deliver_notifications() const noexcept { return true; }
+    // Called when the Realm is about to send notifications about Realm,
+    // Collection or Object changes. This method will be called even if
+    // no notification callbacks have been registered.
+    virtual void will_send_notifications() { }
+
+    // Called when the Realm is done sending all change notifications. This method
+    // will be called even if no notification callbacks have been registered.
+    virtual void did_send_notifications() { }
 
     // Called by the Realm when refresh called or a notification arrives which
     // is triggered through write transaction committed by itself or a different
@@ -114,11 +123,14 @@ public:
                             std::vector<void*> const& invalidated,
                             bool version_changed=true);
 
+    // Called immediately after the corresponding Realm's schema is changed through
+    // update_schema()/set_schema_subset() or the schema is changed by another Realm
+    // instance. The parameter is a schema reference which is the same as the return
+    // value of Realm::schema().
+    virtual void schema_did_change(Schema const&) {}
+
     // Change information for a single field of a row
     struct ColumnInfo {
-        // The index of this column prior to the changes in the tracked
-        // transaction, or -1 for newly inserted columns.
-        size_t initial_column_index = -1;
         // What kind of change occurred?
         // Always Set or None for everything but LinkList columns.
         enum class Kind {
@@ -141,10 +153,9 @@ public:
     // The Realm parses the transaction log, and populates the `changes` vector
     // in each ObserverState with information about what changes were made.
     struct ObserverState {
-        // Initial table and row which is observed
-        // May be updated by row insertions and removals
-        size_t table_ndx;
-        size_t row_ndx;
+        // Table and row which is observed
+        realm::TableKey table_key;
+        int64_t obj_key;
 
         // Opaque userdata for the delegate's use
         void* info;
@@ -152,12 +163,12 @@ public:
         // Populated with information about which columns were changed
         // May be shorter than the actual number of columns if the later columns
         // are not modified
-        std::vector<ColumnInfo> changes;
+        std::unordered_map<int64_t, ColumnInfo> changes;
 
         // Simple lexographic ordering
         friend bool operator<(ObserverState const& lft, ObserverState const& rgt)
         {
-            return std::tie(lft.table_ndx, lft.row_ndx) < std::tie(rgt.table_ndx, rgt.row_ndx);
+            return std::tie(lft.table_key, lft.obj_key) < std::tie(rgt.table_key, rgt.obj_key);
         }
     };
 };

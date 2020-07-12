@@ -18,7 +18,6 @@
 
 import Realm
 
-/// :nodoc:
 extension Realm {
     /**
      Struct that describes the error codes within the Realm error domain.
@@ -75,11 +74,19 @@ extension Realm {
         }
 
         /// :nodoc:
-        public var _nsError: NSError
+        public let _nsError: NSError
 
         /// :nodoc:
         public init(_nsError error: NSError) {
             _nsError = error
+        }
+
+        /// Realm configuration that can be used to open the backup copy of a Realm file
+        ///
+        //// Only applicable to `incompatibleSyncedFile`. Will be `nil` for all other errors.
+        public var backupConfiguration: Realm.Configuration? {
+            let configuration = userInfo[RLMBackupRealmConfigurationErrorKey] as! RLMRealmConfiguration?
+            return configuration.map(Realm.Configuration.fromRLMRealmConfiguration)
         }
     }
 }
@@ -88,7 +95,9 @@ extension Realm {
 // Provide bridging from errors with domain RLMErrorDomain to Error.
 extension Realm.Error: _BridgedStoredNSError {
     /// :nodoc:
-    public static var _nsErrorDomain = RLMErrorDomain
+    public static let _nsErrorDomain = RLMErrorDomain
+    /// :nodoc:
+    public static let errorDomain = RLMErrorDomain
 }
 
 // MARK: Equatable

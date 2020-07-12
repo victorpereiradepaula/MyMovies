@@ -14,7 +14,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
-
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
         
         let searchTableViewController = UINavigationController(rootViewController: SearchTableViewController())
@@ -29,15 +28,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         searchTableViewController.navigationBar.barTintColor = DEFAULT_BACKGROUNDCOLOR
         searchTableViewController.navigationBar.tintColor = DEFAULT_TEXT_COLOR
-        searchTableViewController.navigationBar.titleTextAttributes = [NSForegroundColorAttributeName: DEFAULT_TEXT_COLOR]
+        searchTableViewController.navigationBar.titleTextAttributes = [.foregroundColor: DEFAULT_TEXT_COLOR]
         myMoviesTableViewController.navigationBar.barTintColor = DEFAULT_BACKGROUNDCOLOR
         myMoviesTableViewController.navigationBar.tintColor = DEFAULT_TEXT_COLOR
-        myMoviesTableViewController.navigationBar.titleTextAttributes = [NSForegroundColorAttributeName: DEFAULT_TEXT_COLOR]
+        myMoviesTableViewController.navigationBar.titleTextAttributes = [.foregroundColor: DEFAULT_TEXT_COLOR]
         tabBarController.tabBar.barTintColor = DEFAULT_BACKGROUNDCOLOR
         tabBarController.tabBar.tintColor = DEFAULT_TEXT_COLOR
         
-        window?.rootViewController = tabBarController
-        window?.makeKeyAndVisible()
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        
+        window.rootViewController = tabBarController
+        window.makeKeyAndVisible()
+        
+        self.window = window
         return true
     }
 

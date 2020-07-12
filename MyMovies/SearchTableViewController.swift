@@ -19,7 +19,7 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
         var poster: NSData!
     }
     
-    let detailsViewController = DetailsViewController()
+    private lazy var detailsViewController = DetailsViewController()
     var movies: [movie] = []
     
     var currentPage = 1
@@ -44,7 +44,7 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
     
     func prepareSearchURL() -> String {
         let fixText = currentSearchText.replacingOccurrences(of: " ", with: "+")
-        let url = searchURL + fixText.lowercased() + typeURL + pageURL + String(currentPage)
+        let url = searchURL + fixText.lowercased() + typeURL + pageURL + String(currentPage) + apiKey
         return url
     }
     
@@ -87,7 +87,7 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
     
     //MARK: - Reloads tableview when text is deleted
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        if searchText.characters.count == 0 {
+        if searchText.count == 0 {
             movies = []
             tableView.reloadData()
             setMessageOnTableFooterView(text: "")
@@ -108,7 +108,11 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
         }
         
         let moviePoster = movies[indexPath.row].poster
-        cell.poster.image =  UIImage(data: moviePoster as! Data)
+        
+        if let moviePoster = moviePoster as Data? {
+            cell.poster.image =  UIImage(data: moviePoster)
+        }
+        
         if moviePoster != DEFAULT_IMAGE{
             cell.poster.contentMode = .scaleToFill
         } else {
@@ -133,7 +137,7 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
         
         let details = UITableViewRowAction(style: .normal, title: "Detalhes") { action, index in
             
-            let url = detailedURL + imdbID + typeURL
+            let url = detailedURL + imdbID + typeURL + apiKey
             self.fetchInformation(url: url, details: true)
             
             self.detailsViewController.setMainInformation(imdbID: imdbID,
@@ -174,7 +178,7 @@ class SearchTableViewController: UITableViewController, UISearchBarDelegate {
 extension SearchTableViewController {
     
     func fetchInformation(url: String, details: Bool) {
-        Alamofire.request(url).responseJSON(completionHandler: {
+        AF.request(url).responseJSON(completionHandler: {
             response in
             if details {
                 self.splitDetailsData(JSONData: response.data!)
@@ -218,12 +222,11 @@ extension SearchTableViewController {
     func splitData(JSONData: Data) {
         do {
             let readableJSON = try JSONSerialization.jsonObject(with: JSONData, options: .mutableContainers) as! JSONStandard
-            if let search = readableJSON["Search"] {
+            if let search = readableJSON["Search"] as? [[String: Any]] {
                 
                 setLastPage(totalResults: Int(readableJSON["totalResults"] as! String)!)
                 
-                for i in 0..<search.count {
-                    let item = search.objectAt(i)
+                for item in search {
                     let imageURL = item["Poster"] as! String
                     if let poster = NSData(contentsOf: URL(string: imageURL)!) {
                         self.movies.append(movie.init(imdbID: item["imdbID"] as! String,
@@ -278,7 +281,7 @@ extension SearchTableViewController {
         view.addGestureRecognizer(tap)
     }
     
-    func dismissKeyboard() {
+    @objc func dismissKeyboard() {
         self.searchBar.resignFirstResponder()
     }
     
@@ -299,10 +302,10 @@ extension SearchTableViewController {
     
     func addFavorite(imdbID: String) {
         self.tableView.isEditing = false
-        let url = detailedURL + imdbID + typeURL
+        let url = detailedURL + imdbID + typeURL + apiKey
         let favorite = Movie()
         favorite.imdbID = imdbID
-        Alamofire.request(url).responseJSON(completionHandler: {
+        AF.request(url).responseJSON(completionHandler: {
             response in
             do {
                 let readableJSON = try JSONSerialization.jsonObject(with: response.data!, options: .mutableContainers) as! JSONStandard
@@ -324,7 +327,7 @@ extension SearchTableViewController {
                     favorite.plot = readableJSON["Plot"] as! String
                     let realm = try! Realm()
                     try realm.write {
-                        realm.add(favorite, update: true)
+                        realm.add(favorite)
                     }
                     let addMovieAlert = UIAlertController(title: "Favorito adicionado", message: "\(favorite.title) adicionado aos favoritos.", preferredStyle: .alert)
                     addMovieAlert.addAction(UIAlertAction(title: "Ok", style: .default, handler: nil))

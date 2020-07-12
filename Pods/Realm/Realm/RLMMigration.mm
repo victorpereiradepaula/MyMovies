@@ -20,12 +20,13 @@
 
 #import "RLMAccessor.h"
 #import "RLMObject_Private.h"
+#import "RLMObject_Private.hpp"
 #import "RLMObjectSchema_Private.hpp"
 #import "RLMObjectStore.h"
 #import "RLMProperty_Private.h"
 #import "RLMRealm_Dynamic.h"
 #import "RLMRealm_Private.hpp"
-#import "RLMResults_Private.h"
+#import "RLMResults_Private.hpp"
 #import "RLMSchema_Private.hpp"
 #import "RLMUtil.hpp"
 
@@ -76,30 +77,38 @@ using namespace realm;
     return self.realm.schema;
 }
 
-- (void)enumerateObjects:(NSString *)className block:(RLMObjectMigrationBlock)block {
-    // get all objects
+- (void)enumerateObjects:(NSString *)className block:(__attribute__((noescape)) RLMObjectMigrationBlock)block {
     RLMResults *objects = [_realm.schema schemaForClassName:className] ? [_realm allObjects:className] : nil;
     RLMResults *oldObjects = [_oldRealm.schema schemaForClassName:className] ? [_oldRealm allObjects:className] : nil;
 
-    if (objects && oldObjects) {
-        for (long i = oldObjects.count - 1; i >= 0; i--) {
+    // For whatever reason if this is a newly added table we enumerate the
+    // objects in it, while in all other cases we enumerate only the existing
+    // objects. It's unclear how this could be useful, but changing it would
+    // also be a pointless breaking change and it's unlikely to be hurting anyone.
+    if (objects && !oldObjects) {
+        for (RLMObject *object in objects) {
             @autoreleasepool {
-                block(oldObjects[i], objects[i]);
+                block(nil, object);
             }
         }
+        return;
     }
-    else if (objects) {
-        for (long i = objects.count - 1; i >= 0; i--) {
-            @autoreleasepool {
-                block(nil, objects[i]);
-            }
-        }
+
+    if (oldObjects.count == 0 || objects.count == 0) {
+        return;
     }
-    else if (oldObjects) {
-        for (long i = oldObjects.count - 1; i >= 0; i--) {
-            @autoreleasepool {
-                block(oldObjects[i], nil);
+
+    auto& info = _realm->_info[className];
+    for (RLMObject *oldObject in oldObjects) {
+        @autoreleasepool {
+            Obj newObj;
+            try {
+                newObj = info.table()->get_object(oldObject->_row.get_key());
             }
+            catch (InvalidKey const&) {
+                continue;
+            }
+            block(oldObject, (id)RLMCreateObjectAccessor(info, std::move(newObj)));
         }
     }
 }
@@ -143,20 +152,19 @@ using namespace realm;
     if (!table) {
         return false;
     }
-
     if ([_realm.schema schemaForClassName:name]) {
         table->clear();
     }
     else {
-        realm::ObjectStore::delete_data_for_object(_realm.group, name.UTF8String);
+        _realm.group.remove_table(table->get_key());
     }
 
     return true;
 }
 
 - (void)renamePropertyForClass:(NSString *)className oldName:(NSString *)oldName newName:(NSString *)newName {
-    const char *objectType = className.UTF8String;
-    realm::ObjectStore::rename_property(_realm.group, *_schema, objectType, oldName.UTF8String, newName.UTF8String);
+    realm::ObjectStore::rename_property(_realm.group, *_schema, className.UTF8String,
+                                        oldName.UTF8String, newName.UTF8String);
 }
 
 @end

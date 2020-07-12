@@ -17,14 +17,17 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #import <Foundation/Foundation.h>
+
+#import <realm/table_ref.hpp>
+
 #import <unordered_map>
 #import <vector>
 
 namespace realm {
     class ObjectSchema;
     class Schema;
-    class Table;
     struct Property;
+    struct ColKey;
 }
 
 class RLMObservationInfo;
@@ -62,11 +65,11 @@ public:
 
     // Get the table for this object type. Will return nullptr only if it's a
     // read-only Realm that is missing the table entirely.
-    realm::Table *_Nullable table() const;
+    realm::TableRef table() const;
 
     // Get the RLMProperty for a given table column, or `nil` if it is a column
     // not used by the current schema
-    RLMProperty *_Nullable propertyForTableColumn(NSUInteger) const noexcept;
+    RLMProperty *_Nullable propertyForTableColumn(realm::ColKey) const noexcept;
 
     // Get the RLMProperty that's used as the primary key, or `nil` if there is
     // no primary key for the current schema
@@ -74,17 +77,17 @@ public:
 
     // Get the table column for the given property. The property must be a valid
     // persisted property.
-    NSUInteger tableColumn(NSString *propertyName) const;
-    NSUInteger tableColumn(RLMProperty *property) const;
+    realm::ColKey tableColumn(NSString *propertyName) const;
+    realm::ColKey tableColumn(RLMProperty *property) const;
 
     // Get the info for the target of the link at the given property index.
     RLMClassInfo &linkTargetType(size_t propertyIndex);
 
-    void releaseTable() { m_table = nullptr; }
+    // Get the info for the target of the given property
+    RLMClassInfo &linkTargetType(realm::Property const& property);
 
-private:
-    mutable realm::Table *_Nullable m_table = nullptr;
-    std::vector<RLMClassInfo *> m_linkTargets;
+    // Get the corresponding ClassInfo for the given Realm
+    RLMClassInfo &freeze(RLMRealm *);
 };
 
 // A per-RLMRealm object schema map which stores RLMClassInfo keyed on the name
@@ -92,7 +95,9 @@ class RLMSchemaInfo {
     using impl = std::unordered_map<NSString *, RLMClassInfo>;
 public:
     RLMSchemaInfo() = default;
-    RLMSchemaInfo(RLMRealm *realm, RLMSchema *rlmSchema, realm::Schema const& schema);
+    RLMSchemaInfo(RLMRealm *realm);
+
+    RLMSchemaInfo clone(realm::Schema const& source_schema, RLMRealm *target_realm);
 
     // Look up by name, throwing if it's not present
     RLMClassInfo& operator[](NSString *name);

@@ -1,4 +1,4 @@
-/*************************************************************************
+﻿/*************************************************************************
  *
  * Copyright 2016 Realm Inc.
  *
@@ -26,13 +26,15 @@
 #include <realm/util/features.h>
 #include <realm/util/terminate.hpp>
 #include <realm/util/assert.hpp>
+#include <realm/util/file.hpp>
+#include <realm/exceptions.hpp>
 #include <realm/util/safe_int_ops.hpp>
+#include <realm/node_header.hpp>
+#include <realm/util/file_mapper.hpp>
 
 namespace realm {
 
 class Allocator;
-
-class Replication;
 
 using ref_type = size_t;
 
@@ -48,8 +50,8 @@ public:
     MemRef(char* addr, ref_type ref, Allocator& alloc) noexcept;
     MemRef(ref_type ref, Allocator& alloc) noexcept;
 
-    char* get_addr();
-    ref_type get_ref();
+    char* get_addr() const;
+    ref_type get_ref() const;
     void set_ref(ref_type ref);
     void set_addr(char* addr);
 
@@ -80,8 +82,6 @@ private:
 /// \sa SlabAlloc
 class Allocator {
 public:
-    static constexpr int CURRENT_FILE_FORMAT_VERSION = 6;
-
     /// The specified size must be divisible by 8, and must not be
     /// zero.
     ///
@@ -113,6 +113,10 @@ public:
     /// this interface.
     bool is_read_only(ref_type) const noexcept;
 
+    void set_read_only(bool ro)
+    {
+        m_is_read_only = ro;
+    }
     /// Returns a simple allocator that can be used with free-standing
     /// Realm objects (such as a free-standing table). A
     /// free-standing object is one that is not part of a Group, and
@@ -120,6 +124,10 @@ public:
     static Allocator& get_default() noexcept;
 
     virtual ~Allocator() noexcept;
+
+    // Disable copying. Copying an allocator can produce double frees.
+    Allocator(const Allocator&) = delete;
+    Allocator& operator=(const Allocator&) = delete;
 
     virtual void verify() const = 0;
 
@@ -135,89 +143,29 @@ public:
     }
 #endif
 
-    Replication* get_replication() noexcept;
-
-    /// \brief The version of the format of the the node structure (in file or
-    /// in memory) in use by Realm objects associated with this allocator.
-    ///
-    /// Every allocator contains a file format version field, which is returned
-    /// by this function. In some cases (as mentioned below) the file format can
-    /// change.
-    ///
-    /// A value of zero means the the file format is not yet decided. This is
-    /// only possible for empty Realms where top-ref is zero.
-    ///
-    /// For the default allocator (get_default()), the file format version field
-    /// can never change, is never zero, and is set to whatever
-    /// Group::get_target_file_format_version_for_session() would return if the
-    /// original file format version was undecided and the request history type
-    /// was Replication::hist_None.
-    ///
-    /// For the slab allocator (AllocSlab), the file format version field is set
-    /// to the file format version specified by the attached file (or attached
-    /// memory buffer) at the time of attachment. If no file (or buffer) is
-    /// currently attached, the returned value has no meaning. If the Realm file
-    /// format is later upgraded, the file format version filed must be updated
-    /// to reflect that fact.
-    ///
-    /// In shared mode (when a Realm file is opened via a SharedGroup instance)
-    /// it can happen that the file format is upgraded asyncronously (via
-    /// another SharedGroup instance), and in that case the file format version
-    /// field of the allocator can get out of date, but only for a short
-    /// while. It is always garanteed to be, and remain up to date after the
-    /// opening process completes (when SharedGroup::do_open() returns).
-    ///
-    /// An empty Realm file (one whose top-ref is zero) may specify a file
-    /// format version of zero to indicate that the format is not yet
-    /// decided. In that case, this function will return zero immediately after
-    /// AllocSlab::attach_file() returns. It shall be guaranteed, however, that
-    /// the zero is changed to a proper file format version before the opening
-    /// process completes (Group::open() or SharedGroup::open()). It is the duty
-    /// of the caller of AllocSlab::attach_file() to ensure this.
-    ///
-    /// File format versions:
-    ///
-    ///   1 Initial file format version
-    ///
-    ///   2 Various changes.
-    ///
-    ///   3 Supporting null on string columns broke the file format in following
-    ///     way: Index appends an 'X' character to all strings except the null
-    ///     string, to be able to distinguish between null and empty
-    ///     string. Bumped to 3 because of null support of String columns and
-    ///     because of new format of index.
-    ///
-    ///   4 Introduction of optional in-Realm history of changes (additional
-    ///     entries in Group::m_top). Since this change is not forward
-    ///     compatible, the file format version had to be bumped. This change is
-    ///     implemented in a way that achieves backwards compatibility with
-    ///     version 3 (and in turn with version 2).
-    ///
-    ///   5 Introduced the new Timestamp column type that replaces DateTime.
-    ///     When opening an older database file, all DateTime columns will be
-    ///     automatically upgraded Timestamp columns.
-    ///
-    ///   6 Introduced a new structure for the StringIndex. Moved the commit
-    ///     logs into the Realm file. Changes to the transaction log format
-    ///     including reshuffling instructions. This is the format used in
-    ///     milestone 2.0.0.
-    ///
-    /// IMPORTANT: When introducing a new file format version, be sure to review
-    /// the file validity checks in AllocSlab::validate_buffer(), the file
-    /// format selection logic in
-    /// Group::get_target_file_format_version_for_session(), and the file format
-    /// upgrade logic in Group::upgrade_file_format().
-    int get_file_format_version() const noexcept;
+    struct MappedFile;
 
 protected:
-    size_t m_baseline = 0; // Separation line between immutable and mutable refs.
+    constexpr static int section_shift = 26;
 
-    Replication* m_replication = nullptr;
-
-    /// See get_file_format_version().
-    int m_file_format_version = 0;
+    std::atomic<size_t> m_baseline; // Separation line between immutable and mutable refs.
 
     ref_type m_debug_watch = 0;
+
+    // The following logically belongs in the slab allocator, but is placed
+    // here to optimize a critical path:
+
+    // The ref translation splits the full ref-space (both below and above baseline)
+    // into equal chunks.
+    struct RefTranslation {
+        char* mapping_addr;
+#if REALM_ENABLE_ENCRYPTION
+        util::EncryptedFileMapping* encrypted_mapping;
+#endif
+    };
+    // This pointer may be changed concurrently with access, so make sure it is
+    // atomic!
+    std::atomic<RefTranslation*> m_ref_translation_ptr;
 
     /// The specified size must be divisible by 8, and must not be
     /// zero.
@@ -233,10 +181,10 @@ protected:
     /// the old chunk.
     ///
     /// \throw std::bad_alloc If insufficient memory was available.
-    virtual MemRef do_realloc(ref_type, const char* addr, size_t old_size, size_t new_size) = 0;
+    virtual MemRef do_realloc(ref_type, char* addr, size_t old_size, size_t new_size) = 0;
 
     /// Release the specified chunk of memory.
-    virtual void do_free(ref_type, const char* addr) noexcept = 0;
+    virtual void do_free(ref_type, char* addr) = 0;
 
     /// Map the specified \a ref to the corresponding memory
     /// address. Note that if is_read_only(ref) returns true, then the
@@ -246,49 +194,143 @@ protected:
     virtual char* do_translate(ref_type ref) const noexcept = 0;
 
     Allocator() noexcept;
+    size_t get_section_index(size_t pos) const noexcept;
+    inline size_t get_section_base(size_t index) const noexcept;
 
-    // FIXME: This really doesn't belong in an allocator, but it is the best
-    // place for now, because every table has a pointer leading here. It would
-    // be more obvious to place it in Group, but that would add a runtime overhead,
-    // and access is time critical.
+
+    // The following counters are used to ensure accessor refresh,
+    // and allows us to report many errors related to attempts to
+    // access data which is no longer current.
     //
-    // This means that multiple threads that allocate Realm objects through the
-    // default allocator will share this variable, which is a logical design flaw
-    // that can make sync_if_needed() re-run queries even though it is not required.
-    // It must be atomic because it's shared.
-    std::atomic<uint_fast64_t> m_table_versioning_counter;
+    // * storage_versioning: monotonically increasing counter
+    //   bumped whenever the underlying storage layout is changed,
+    //   or if the owning accessor have been detached.
+    // * content_versioning: monotonically increasing counter
+    //   bumped whenever the data is changed. Used to detect
+    //   if queries are stale.
+    // * instance_versioning: monotonically increasing counter
+    //   used to detect if the allocator (and owning structure, e.g. Table)
+    //   is recycled. Mismatch on this counter will cause accesors
+    //   lower in the hierarchy to throw if access is attempted.
+    std::atomic<uint_fast64_t> m_content_versioning_counter;
 
-    /// Bump the global version counter. This method should be called when
-    /// version bumping is initiated. Then following calls to should_propagate_version()
-    /// can be used to prune the version bumping.
-    uint_fast64_t bump_global_version() noexcept;
+    std::atomic<uint_fast64_t> m_storage_versioning_counter;
 
-    /// Determine if the "local_version" is out of sync, so that it should
-    /// be updated. In that case: also update it. Called from Table::bump_version
-    /// to control propagation of version updates on tables within the group.
-    bool should_propagate_version(uint_fast64_t& local_version) noexcept;
+    std::atomic<uint_fast64_t> m_instance_versioning_counter;
+
+    inline uint_fast64_t get_storage_version(uint64_t instance_version)
+    {
+        if (instance_version != m_instance_versioning_counter) {
+            throw LogicError(LogicError::detached_accessor);
+        }
+        return m_storage_versioning_counter.load(std::memory_order_acquire);
+    }
+
+    inline uint_fast64_t get_storage_version()
+    {
+        return m_storage_versioning_counter.load(std::memory_order_acquire);
+    }
+
+    inline void bump_storage_version() noexcept
+    {
+        m_storage_versioning_counter.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    inline uint_fast64_t get_content_version() noexcept
+    {
+        return m_content_versioning_counter.load(std::memory_order_acquire);
+    }
+
+    inline uint_fast64_t bump_content_version() noexcept
+    {
+        return m_content_versioning_counter.fetch_add(1, std::memory_order_acq_rel) + 1;
+    }
+
+    inline uint_fast64_t get_instance_version() noexcept
+    {
+        return m_instance_versioning_counter.load(std::memory_order_relaxed);
+    }
+
+    inline void bump_instance_version() noexcept
+    {
+        m_instance_versioning_counter.fetch_add(1, std::memory_order_relaxed);
+    }
+
+private:
+    bool m_is_read_only = false; // prevent any alloc or free operations
 
     friend class Table;
+    friend class ClusterTree;
     friend class Group;
+    friend class WrappedAllocator;
+    friend class ConstObj;
+    friend class Obj;
+    friend class ConstLstBase;
 };
 
-inline uint_fast64_t Allocator::bump_global_version() noexcept
-{
-    ++m_table_versioning_counter;
-    return m_table_versioning_counter;
-}
 
+class WrappedAllocator : public Allocator {
+public:
+    WrappedAllocator(Allocator& underlying_allocator)
+        : m_alloc(&underlying_allocator)
+    {
+        m_baseline.store(m_alloc->m_baseline, std::memory_order_relaxed);
+        m_debug_watch = 0;
+        m_ref_translation_ptr.store(m_alloc->m_ref_translation_ptr);
+    }
 
-inline bool Allocator::should_propagate_version(uint_fast64_t& local_version) noexcept
-{
-    if (local_version != m_table_versioning_counter) {
-        local_version = m_table_versioning_counter;
-        return true;
+    ~WrappedAllocator()
+    {
     }
-    else {
-        return false;
+
+    void switch_underlying_allocator(Allocator& underlying_allocator)
+    {
+        m_alloc = &underlying_allocator;
+        m_baseline.store(m_alloc->m_baseline, std::memory_order_relaxed);
+        m_debug_watch = 0;
+        m_ref_translation_ptr.store(m_alloc->m_ref_translation_ptr);
     }
-}
+
+    void update_from_underlying_allocator(bool writable)
+    {
+        switch_underlying_allocator(*m_alloc);
+        set_read_only(!writable);
+    }
+
+private:
+    Allocator* m_alloc;
+    MemRef do_alloc(const size_t size) override
+    {
+        auto result = m_alloc->do_alloc(size);
+        bump_storage_version();
+        m_baseline.store(m_alloc->m_baseline, std::memory_order_relaxed);
+        m_ref_translation_ptr.store(m_alloc->m_ref_translation_ptr);
+        return result;
+    }
+    virtual MemRef do_realloc(ref_type ref, char* addr, size_t old_size, size_t new_size) override
+    {
+        auto result = m_alloc->do_realloc(ref, addr, old_size, new_size);
+        bump_storage_version();
+        m_baseline.store(m_alloc->m_baseline, std::memory_order_relaxed);
+        m_ref_translation_ptr.store(m_alloc->m_ref_translation_ptr);
+        return result;
+    }
+
+    virtual void do_free(ref_type ref, char* addr) noexcept override
+    {
+        return m_alloc->do_free(ref, addr);
+    }
+
+    virtual char* do_translate(ref_type ref) const noexcept override
+    {
+        return m_alloc->translate(ref);
+    }
+
+    virtual void verify() const override
+    {
+        m_alloc->verify();
+    }
+};
 
 
 // Implementation:
@@ -312,9 +354,9 @@ inline ref_type to_ref(int_fast64_t v) noexcept
 
     // C++11 standard, paragraph 4.7.2 [conv.integral]:
     // If the destination type is unsigned, the resulting value is the least unsigned integer congruent to the source
-    // integer (modulo 2n where n is the number of bits used to represent the unsigned type). [ Note: In a two’s
+    // integer (modulo 2n where n is the number of bits used to represent the unsigned type). [ Note: In a two's
     // complement representation, this conversion is conceptual and there is no change in the bit pattern (if there is
-    // no truncation). — end note ]
+    // no truncation). - end note ]
     static_assert(std::is_unsigned<ref_type>::value,
                   "If ref_type changes, from_ref and to_ref should probably be updated");
     return ref_type(v);
@@ -358,7 +400,7 @@ inline MemRef::MemRef(ref_type ref, Allocator& alloc) noexcept
 #endif
 }
 
-inline char* MemRef::get_addr()
+inline char* MemRef::get_addr() const
 {
 #if REALM_ENABLE_MEMDEBUG
     // Asserts if the ref has been freed
@@ -367,7 +409,7 @@ inline char* MemRef::get_addr()
     return m_addr;
 }
 
-inline ref_type MemRef::get_ref()
+inline ref_type MemRef::get_ref() const
 {
 #if REALM_ENABLE_MEMDEBUG
     // Asserts if the ref has been freed
@@ -392,6 +434,8 @@ inline void MemRef::set_addr(char* addr)
 
 inline MemRef Allocator::alloc(size_t size)
 {
+    if (m_is_read_only)
+        throw realm::LogicError(realm::LogicError::wrong_transact_state);
     return do_alloc(size);
 }
 
@@ -401,7 +445,9 @@ inline MemRef Allocator::realloc_(ref_type ref, const char* addr, size_t old_siz
     if (ref == m_debug_watch)
         REALM_TERMINATE("Allocator watch: Ref was reallocated");
 #endif
-    return do_realloc(ref, addr, old_size, new_size);
+    if (m_is_read_only)
+        throw realm::LogicError(realm::LogicError::wrong_transact_state);
+    return do_realloc(ref, const_cast<char*>(addr), old_size, new_size);
 }
 
 inline void Allocator::free_(ref_type ref, const char* addr) noexcept
@@ -410,7 +456,9 @@ inline void Allocator::free_(ref_type ref, const char* addr) noexcept
     if (ref == m_debug_watch)
         REALM_TERMINATE("Allocator watch: Ref was freed");
 #endif
-    return do_free(ref, addr);
+    REALM_ASSERT(!m_is_read_only);
+
+    return do_free(ref, const_cast<char*>(addr));
 }
 
 inline void Allocator::free_(MemRef mem) noexcept
@@ -418,37 +466,53 @@ inline void Allocator::free_(MemRef mem) noexcept
     free_(mem.get_ref(), mem.get_addr());
 }
 
-inline char* Allocator::translate(ref_type ref) const noexcept
+inline size_t Allocator::get_section_base(size_t index) const noexcept
 {
-    return do_translate(ref);
+    return index << section_shift; // 64MB chunks
+}
+
+inline size_t Allocator::get_section_index(size_t pos) const noexcept
+{
+    return pos >> section_shift; // 64Mb chunks
 }
 
 inline bool Allocator::is_read_only(ref_type ref) const noexcept
 {
     REALM_ASSERT_DEBUG(ref != 0);
-    REALM_ASSERT_DEBUG(m_baseline != 0); // Attached SlabAlloc
-    return ref < m_baseline;
+    // REALM_ASSERT_DEBUG(m_baseline != 0); // Attached SlabAlloc
+    return ref < m_baseline.load(std::memory_order_relaxed);
 }
 
 inline Allocator::Allocator() noexcept
 {
-    m_table_versioning_counter = 0;
+    m_content_versioning_counter = 0;
+    m_storage_versioning_counter = 0;
+    m_instance_versioning_counter = 0;
+    m_ref_translation_ptr = nullptr;
 }
 
 inline Allocator::~Allocator() noexcept
 {
 }
 
-inline Replication* Allocator::get_replication() noexcept
+inline char* Allocator::translate(ref_type ref) const noexcept
 {
-    return m_replication;
+    if (auto ref_translation_ptr = m_ref_translation_ptr.load(std::memory_order_acquire)) {
+        char* base_addr;
+        size_t idx = get_section_index(ref);
+        base_addr = ref_translation_ptr[idx].mapping_addr;
+        size_t offset = ref - get_section_base(idx);
+        auto addr = base_addr + offset;
+#if REALM_ENABLE_ENCRYPTION
+        realm::util::encryption_read_barrier(addr, NodeHeader::header_size,
+                                             ref_translation_ptr[idx].encrypted_mapping,
+                                             NodeHeader::get_byte_size_from_header);
+#endif
+        return addr;
+    }
+    else
+        return do_translate(ref);
 }
-
-inline int Allocator::get_file_format_version() const noexcept
-{
-    return m_file_format_version;
-}
-
 
 } // namespace realm
 

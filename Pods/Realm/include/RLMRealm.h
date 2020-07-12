@@ -17,9 +17,19 @@
 ////////////////////////////////////////////////////////////////////////////
 
 #import <Foundation/Foundation.h>
-#import "RLMConstants.h"
+#import <Realm/RLMConstants.h>
 
-@class RLMRealmConfiguration, RLMObject, RLMSchema, RLMMigration, RLMNotificationToken, RLMThreadSafeReference;
+@class RLMRealmConfiguration, RLMRealm, RLMObject, RLMSchema, RLMMigration, RLMNotificationToken, RLMThreadSafeReference, RLMAsyncOpenTask;
+struct RLMRealmPrivileges;
+struct RLMClassPrivileges;
+struct RLMObjectPrivileges;
+
+/**
+ A callback block for opening Realms asynchronously.
+
+ Returns the Realm if the open was successful, or an error otherwise.
+ */
+typedef void(^RLMAsyncOpenRealmCallback)(RLMRealm * _Nullable realm, NSError * _Nullable error);
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -41,12 +51,12 @@ NS_ASSUME_NONNULL_BEGIN
  the Realm within an `@autoreleasepool {}` and ensure you have no other
  strong references to it.
 
- @warning `RLMRealm` instances are not thread safe and cannot be shared across
- threads or dispatch queues. Trying to do so will cause an exception to be thrown.
- You must call this method on each thread you want
- to interact with the Realm on. For dispatch queues, this means that you must
- call it in each block which is dispatched, as a queue is not guaranteed to run
- all of its blocks on the same thread.
+ @warning Non-frozen `RLMRealm` instances are thread-confined and cannot be
+ shared across threads or dispatch queues. Trying to do so will cause an
+ exception to be thrown. You must call this method on each thread you want to
+ interact with the Realm on. For dispatch queues, this means that you must call
+ it in each block which is dispatched, as a queue is not guaranteed to run all
+ of its blocks on the same thread.
  */
 
 @interface RLMRealm : NSObject
@@ -59,8 +69,8 @@ NS_ASSUME_NONNULL_BEGIN
  The default Realm is used by the `RLMObject` class methods
  which do not take an `RLMRealm` parameter, but is otherwise not special. The
  default Realm is persisted as *default.realm* under the *Documents* directory of
- your Application on iOS, and in your application's *Application Support*
- directory on OS X.
+ your Application on iOS, in your application's *Application Support*
+ directory on macOS, and in the *Cache* directory on tvOS.
 
  The default Realm is created using the default `RLMRealmConfiguration`, which
  can be changed via `+[RLMRealmConfiguration setDefaultConfiguration:]`.
@@ -68,6 +78,27 @@ NS_ASSUME_NONNULL_BEGIN
  @return The default `RLMRealm` instance for the current thread.
  */
 + (instancetype)defaultRealm;
+
+/**
+ Obtains an instance of the default Realm bound to the given queue.
+
+ Rather than being confined to the thread they are opened on, queue-bound
+ RLMRealms are confined to the given queue. They can be accessed from any
+ thread as long as it is from within a block dispatch to the queue, and
+ notifications will be delivered to the queue instead of a thread's run loop.
+
+ Realms can only be confined to a serial queue. Queue-confined RLMRealm
+ instances can be obtained when not on that queue, but attempting to do
+ anything with that instance without first dispatching to the queue will throw
+ an incorrect thread exception.
+
+ The default Realm is created using the default `RLMRealmConfiguration`, which
+ can be changed via `+[RLMRealmConfiguration setDefaultConfiguration:]`.
+
+ @param queue A serial dispatch queue to confine the Realm to.
+ @return The default `RLMRealm` instance for the given queue.
+ */
++ (instancetype)defaultRealmForQueue:(dispatch_queue_t)queue;
 
 /**
  Obtains an `RLMRealm` instance with the given configuration.
@@ -82,6 +113,31 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable instancetype)realmWithConfiguration:(RLMRealmConfiguration *)configuration error:(NSError **)error;
 
 /**
+ Obtains an `RLMRealm` instance with the given configuration bound to the given queue.
+
+ Rather than being confined to the thread they are opened on, queue-bound
+ RLMRealms are confined to the given queue. They can be accessed from any
+ thread as long as it is from within a block dispatch to the queue, and
+ notifications will be delivered to the queue instead of a thread's run loop.
+
+ Realms can only be confined to a serial queue. Queue-confined RLMRealm
+ instances can be obtained when not on that queue, but attempting to do
+ anything with that instance without first dispatching to the queue will throw
+ an incorrect thread exception.
+
+ @param configuration A configuration object to use when creating the Realm.
+ @param queue         A serial dispatch queue to confine the Realm to.
+ @param error         If an error occurs, upon return contains an `NSError` object
+                      that describes the problem. If you are not interested in
+                      possible errors, pass in `NULL`.
+
+ @return An `RLMRealm` instance.
+ */
++ (nullable instancetype)realmWithConfiguration:(RLMRealmConfiguration *)configuration
+                                          queue:(nullable dispatch_queue_t)queue
+                                          error:(NSError **)error;
+
+/**
  Obtains an `RLMRealm` instance persisted at a specified file URL.
 
  @param fileURL The local URL of the file the Realm should be saved at.
@@ -89,6 +145,29 @@ NS_ASSUME_NONNULL_BEGIN
  @return An `RLMRealm` instance.
  */
 + (instancetype)realmWithURL:(NSURL *)fileURL;
+
+/**
+ Asynchronously open a Realm and deliver it to a block on the given queue.
+
+ Opening a Realm asynchronously will perform all work needed to get the Realm to
+ a usable state (such as running potentially time-consuming migrations) on a
+ background thread before dispatching to the given queue. In addition,
+ synchronized Realms wait for all remote content available at the time the
+ operation began to be downloaded and available locally.
+
+ The Realm passed to the callback function is confined to the callback queue as
+ if `-[RLMRealm realmWithConfiguration:queue:error]` was used.
+
+ @param configuration A configuration object to use when opening the Realm.
+ @param callbackQueue The serial dispatch queue on which the callback should be run.
+ @param callback      A callback block. If the Realm was successfully opened,
+                      it will be passed in as an argument.
+                      Otherwise, an `NSError` describing what went wrong will be
+                      passed to the block instead.
+ */
++ (RLMAsyncOpenTask *)asyncOpenWithConfiguration:(RLMRealmConfiguration *)configuration
+                                   callbackQueue:(dispatch_queue_t)callbackQueue
+                                        callback:(RLMAsyncOpenRealmCallback)callback;
 
 /**
  The `RLMSchema` used by the Realm.
@@ -113,6 +192,81 @@ NS_ASSUME_NONNULL_BEGIN
  Indicates if this Realm contains any objects.
  */
 @property (nonatomic, readonly) BOOL isEmpty;
+
+/**
+ Indicates if this Realm is frozen.
+
+ @see `-[RLMRealm freeze]`
+ */
+@property (nonatomic, readonly, getter=isFrozen) BOOL frozen;
+
+/**
+ Returns a frozen (immutable) snapshot of this Realm.
+
+ A frozen Realm is an immutable snapshot view of a particular version of a
+ Realm's data. Unlike normal RLMRealm instances, it does not live-update to
+ reflect writes made to the Realm, and can be accessed from any thread. Writing
+ to a frozen Realm is not allowed, and attempting to begin a write transaction
+ will throw an exception.
+
+ All objects and collections read from a frozen Realm will also be frozen.
+ */
+- (RLMRealm *)freeze NS_RETURNS_RETAINED;
+
+#pragma mark - File Management
+
+/**
+ Writes a compacted and optionally encrypted copy of the Realm to the given local URL.
+
+ The destination file cannot already exist.
+
+ Note that if this method is called from within a write transaction, the
+ *current* data is written, not the data from the point when the previous write
+ transaction was committed.
+
+ @param fileURL Local URL to save the Realm to.
+ @param key     Optional 64-byte encryption key to encrypt the new file with.
+ @param error   If an error occurs, upon return contains an `NSError` object
+ that describes the problem. If you are not interested in
+ possible errors, pass in `NULL`.
+
+ @return `YES` if the Realm was successfully written to disk, `NO` if an error occurred.
+ */
+- (BOOL)writeCopyToURL:(NSURL *)fileURL encryptionKey:(nullable NSData *)key error:(NSError **)error;
+
+/**
+ Checks if the Realm file for the given configuration exists locally on disk.
+
+ For non-synchronized, non-in-memory Realms, this is equivalent to
+ `-[NSFileManager.defaultManager fileExistsAtPath:config.path]`. For
+ synchronized Realms, it takes care of computing the actual path on disk based
+ on the server, virtual path, and user as is done when opening the Realm.
+
+ @param config A Realm configuration to check the existence of.
+ @return YES if the Realm file for the given configuration exists on disk, NO otherwise.
+ */
++ (BOOL)fileExistsForConfiguration:(RLMRealmConfiguration *)config;
+
+/**
+ Deletes the local Realm file and associated temporary files for the given configuration.
+
+ This deletes the ".realm", ".note" and ".management" files which would be
+ created by opening the Realm with the given configuration. It does not delete
+ the ".lock" file (which contains no persisted data and is recreated from
+ scratch every time the Realm file is opened).
+
+ The Realm must not be currently open on any thread or in another process. If
+ it is, this will return NO and report the error RLMErrorAlreadyOpen. Attempting to open
+ the Realm on another thread while the deletion is happening will block (and
+ then create a new Realm and open that afterwards).
+
+ If the Realm already does not exist this will return `NO` and report the error NSFileNoSuchFileError;
+
+ @param config A Realm configuration identifying the Realm to be deleted.
+ @return YES if any files were deleted, NO otherwise.
+ */
++ (BOOL)deleteFilesForConfiguration:(RLMRealmConfiguration *)config error:(NSError **)error
+ __attribute__((swift_error(nonnull_error)));
 
 #pragma mark - Notifications
 
@@ -153,9 +307,6 @@ typedef void (^RLMNotificationBlock)(RLMNotification notification, RLMRealm *rea
          receiving change notifications.
  */
 - (RLMNotificationToken *)addNotificationBlock:(RLMNotificationBlock)block __attribute__((warn_unused_result));
-
-#pragma mark - Transactions
-
 
 #pragma mark - Writing to a Realm
 
@@ -291,9 +442,23 @@ typedef void (^RLMNotificationBlock)(RLMNotification notification, RLMRealm *rea
 /**
  Performs actions contained within the given block inside a write transaction.
 
- @see `[RLMRealm transactionWithBlock:error:]`
+ @see `[RLMRealm transactionWithoutNotifying:block:error:]`
  */
 - (void)transactionWithBlock:(__attribute__((noescape)) void(^)(void))block NS_SWIFT_UNAVAILABLE("");
+
+/**
+ Performs actions contained within the given block inside a write transaction.
+
+ @see `[RLMRealm transactionWithoutNotifying:block:error:]`
+ */
+- (BOOL)transactionWithBlock:(__attribute__((noescape)) void(^)(void))block error:(NSError **)error;
+
+/**
+ Performs actions contained within the given block inside a write transaction.
+
+ @see `[RLMRealm transactionWithoutNotifying:block:error:]`
+ */
+- (void)transactionWithoutNotifying:(NSArray<RLMNotificationToken *> *)tokens block:(__attribute__((noescape)) void(^)(void))block;
 
 /**
  Performs actions contained within the given block inside a write transaction.
@@ -308,6 +473,19 @@ typedef void (^RLMNotificationBlock)(RLMNotification notification, RLMRealm *rea
  generates notifications if applicable. This has no effect if the Realm
  was already up to date.
 
+ You can skip notifiying specific notification blocks about the changes made
+ in this write transaction by passing in their associated notification tokens.
+ This is primarily useful when the write transaction is saving changes already
+ made in the UI and you do not want to have the notification block attempt to
+ re-apply the same changes.
+
+ The tokens passed to this method must be for notifications for this specific
+ `RLMRealm` instance. Notifications for different threads cannot be skipped
+ using this method.
+
+ @param tokens An array of notification tokens which were returned from adding
+               callbacks which you do not want to be notified for the changes
+               made in this write transaction.
  @param block The block containing actions to perform.
  @param error If an error occurs, upon return contains an `NSError` object
               that describes the problem. If you are not interested in
@@ -315,7 +493,7 @@ typedef void (^RLMNotificationBlock)(RLMNotification notification, RLMRealm *rea
 
  @return Whether the transaction succeeded.
  */
-- (BOOL)transactionWithBlock:(__attribute__((noescape)) void(^)(void))block error:(NSError **)error;
+- (BOOL)transactionWithoutNotifying:(NSArray<RLMNotificationToken *> *)tokens block:(__attribute__((noescape)) void(^)(void))block error:(NSError **)error;
 
 /**
  Updates the Realm and outstanding objects managed by the Realm to point to the
@@ -362,25 +540,6 @@ typedef void (^RLMNotificationBlock)(RLMNotification notification, RLMRealm *rea
  Defaults to `YES`.
  */
 @property (nonatomic) BOOL autorefresh;
-
-/**
- Writes a compacted and optionally encrypted copy of the Realm to the given local URL.
-
- The destination file cannot already exist.
-
- Note that if this method is called from within a write transaction, the
- *current* data is written, not the data from the point when the previous write
- transaction was committed.
-
- @param fileURL Local URL to save the Realm to.
- @param key     Optional 64-byte encryption key to encrypt the new file with.
- @param error   If an error occurs, upon return contains an `NSError` object
-                that describes the problem. If you are not interested in
-                possible errors, pass in `NULL`.
-
- @return `YES` if the Realm was successfully written to disk, `NO` if an error occurred.
-*/
-- (BOOL)writeCopyToURL:(NSURL *)fileURL encryptionKey:(nullable NSData *)key error:(NSError **)error;
 
 /**
  Invalidates all `RLMObject`s, `RLMResults`, `RLMLinkingObjects`, and `RLMArray`s managed by the Realm.
@@ -458,12 +617,12 @@ NS_REFINED_FOR_SWIFT;
 
  @warning This method may only be called during a write transaction.
 
- @param array   An enumerable object such as `NSArray` or `RLMResults` which contains objects to be added to
-                the Realm.
+ @param objects   An enumerable collection such as `NSArray`, `RLMArray`, or `RLMResults`,
+                  containing Realm objects to be added to the Realm.
 
  @see   `addObject:`
  */
-- (void)addObjects:(id<NSFastEnumeration>)array;
+- (void)addObjects:(id<NSFastEnumeration>)objects;
 
 /**
  Adds or updates an existing object into the Realm.
@@ -475,6 +634,10 @@ NS_REFINED_FOR_SWIFT;
  As with `addObject:`, the object cannot already be managed by a different
  Realm. Use `-[RLMObject createOrUpdateInRealm:withValue:]` to copy values to
  a different Realm.
+
+ If there is a property or KVC value on `object` whose value is nil, and it corresponds
+ to a nullable property on an existing object being updated, that nullable property will
+ be set to nil.
 
  @warning This method may only be called during a write transaction.
 
@@ -489,11 +652,12 @@ NS_REFINED_FOR_SWIFT;
 
  @warning This method may only be called during a write transaction.
 
- @param array  An `NSArray`, `RLMArray`, or `RLMResults` of `RLMObject`s (or subclasses) to be added to the Realm.
+ @param objects  An enumerable collection such as `NSArray`, `RLMArray`, or `RLMResults`,
+                 containing Realm objects to be added to or updated within the Realm.
 
  @see   `addOrUpdateObject:`
  */
-- (void)addOrUpdateObjectsFromArray:(id)array;
+- (void)addOrUpdateObjects:(id<NSFastEnumeration>)objects;
 
 /**
  Deletes an object from the Realm. Once the object is deleted it is considered invalidated.
@@ -511,11 +675,12 @@ NS_REFINED_FOR_SWIFT;
 
  @warning This method may only be called during a write transaction.
 
- @param array  An `RLMArray`, `NSArray`, or `RLMResults` of `RLMObject`s (or subclasses) to be deleted.
+ @param objects  An enumerable collection such as `NSArray`, `RLMArray`, or `RLMResults`,
+                 containing objects to be deleted from the Realm.
 
  @see `deleteObject:`
  */
-- (void)deleteObjects:(id)array;
+- (void)deleteObjects:(id<NSFastEnumeration>)objects;
 
 /**
  Deletes all objects from the Realm.
@@ -566,24 +731,114 @@ NS_REFINED_FOR_SWIFT;
 
  @see                 RLMMigration
  */
-+ (nullable NSError *)migrateRealm:(RLMRealmConfiguration *)configuration
-__deprecated_msg("Use `performMigrationForConfiguration:error:`") NS_REFINED_FOR_SWIFT;
-
-/**
- Performs the given Realm configuration's migration block on a Realm at the given path.
-
- This method is called automatically when opening a Realm for the first time and does
- not need to be called explicitly. You can choose to call this method to control
- exactly when and how migrations are performed.
-
- @param configuration The Realm configuration used to open and migrate the Realm.
- @return              The error that occurred while applying the migration, if any.
-
- @see                 RLMMigration
- */
 + (BOOL)performMigrationForConfiguration:(RLMRealmConfiguration *)configuration error:(NSError **)error;
 
+#pragma mark - Privileges
+
+/**
+ Returns the computed privileges which the current user has for this Realm.
+
+ This combines all privileges granted on the Realm by all Roles which the
+ current User is a member of into the final privileges which will be enforced by
+ the server.
+
+ The privilege calculation is done locally using cached data, and inherently may
+ be stale. It is possible that this method may indicate that an operation is
+ permitted but the server will still reject it if permission is revoked before
+ the changes have been integrated on the server.
+
+ Non-synchronized Realms always have permission to perform all operations.
+
+ @warning This currently returns incorrect results for non-partially-synchronized read-only Realms.
+ @return The privileges which the current user has for the current Realm.
+ */
+- (struct RLMRealmPrivileges)privilegesForRealm;
+
+/**
+ Returns the computed privileges which the current user has for the given object.
+
+ This combines all privileges granted on the object by all Roles which the
+ current User is a member of into the final privileges which will be enforced by
+ the server.
+
+ The privilege calculation is done locally using cached data, and inherently may
+ be stale. It is possible that this method may indicate that an operation is
+ permitted but the server will still reject it if permission is revoked before
+ the changes have been integrated on the server.
+
+ Non-synchronized Realms always have permission to perform all operations.
+
+ The object must be a valid object managed by this Realm. Passing in an
+ invalidated object, an unmanaged object, or an object managed by a different
+ Realm will throw an exception.
+
+ @warning This currently returns incorrect results for non-partially-synchronized read-only Realms.
+ @return The privileges which the current user has for the given object.
+ */
+- (struct RLMObjectPrivileges)privilegesForObject:(RLMObject *)object;
+
+/**
+ Returns the computed privileges which the current user has for the given class.
+
+ This combines all privileges granted on the class by all Roles which the
+ current User is a member of into the final privileges which will be enforced by
+ the server.
+
+ The privilege calculation is done locally using cached data, and inherently may
+ be stale. It is possible that this method may indicate that an operation is
+ permitted but the server will still reject it if permission is revoked before
+ the changes have been integrated on the server.
+
+ Non-synchronized Realms always have permission to perform all operations.
+
+ @warning This currently returns incorrect results for non-partially-synchronized read-only Realms.
+ @return The privileges which the current user has for the given object.
+ */
+- (struct RLMClassPrivileges)privilegesForClass:(Class)cls;
+
+/**
+ Returns the computed privileges which the current user has for the named class.
+
+ This combines all privileges granted on the class by all Roles which the
+ current User is a member of into the final privileges which will be enforced by
+ the server.
+
+ The privilege calculation is done locally using cached data, and inherently may
+ be stale. It is possible that this method may indicate that an operation is
+ permitted but the server will still reject it if permission is revoked before
+ the changes have been integrated on the server.
+
+ Non-synchronized Realms always have permission to perform all operations.
+
+ @warning This currently returns incorrect results for non-partially-synchronized read-only Realms.
+ @return The privileges which the current user has for the given object.
+ */
+- (struct RLMClassPrivileges)privilegesForClassNamed:(NSString *)className;
+
+#pragma mark - Unavailable Methods
+
+/**
+ RLMRealm instances are cached internally by Realm and cannot be created directly.
+
+ Use `+[RLMRealm defaultRealm]`, `+[RLMRealm realmWithConfiguration:error:]` or
+ `+[RLMRealm realmWithURL]` to obtain a reference to an RLMRealm.
+ */
+- (instancetype)init __attribute__((unavailable("Use +defaultRealm, +realmWithConfiguration: or +realmWithURL:.")));
+
+/**
+ RLMRealm instances are cached internally by Realm and cannot be created directly.
+
+ Use `+[RLMRealm defaultRealm]`, `+[RLMRealm realmWithConfiguration:error:]` or
+ `+[RLMRealm realmWithURL]` to obtain a reference to an RLMRealm.
+ */
++ (instancetype)new __attribute__((unavailable("Use +defaultRealm, +realmWithConfiguration: or +realmWithURL:.")));
+
+/// :nodoc:
+- (void)addOrUpdateObjectsFromArray:(id)array __attribute__((unavailable("Renamed to -addOrUpdateObjects:.")));
+
 @end
+
+// MARK: - RLMNotificationToken
 
 /**
  A token which is returned from methods which subscribe to changes to a Realm.
@@ -591,12 +846,15 @@ __deprecated_msg("Use `performMigrationForConfiguration:error:`") NS_REFINED_FOR
  Change subscriptions in Realm return an `RLMNotificationToken` instance,
  which can be used to unsubscribe from the changes. You must store a strong
  reference to the token for as long as you want to continue to receive notifications.
- When you wish to stop, call the `-stop` method. Notifications are also stopped if
+ When you wish to stop, call the `-invalidate` method. Notifications are also stopped if
  the token is deallocated.
  */
 @interface RLMNotificationToken : NSObject
 /// Stops notifications for the change subscription that returned this token.
-- (void)stop;
+- (void)invalidate;
+
+/// Stops notifications for the change subscription that returned this token.
+- (void)stop __attribute__((unavailable("Renamed to -invalidate."))) NS_REFINED_FOR_SWIFT;
 @end
 
 NS_ASSUME_NONNULL_END

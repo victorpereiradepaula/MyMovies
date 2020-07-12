@@ -31,7 +31,7 @@ let searchURL = "http://www.omdbapi.com/?s="
 let detailedURL = "http://www.omdbapi.com/?i="
 let typeURL = "&type=movie"
 let pageURL = "&page="
-
+let apiKey = "&apikey=5b4a399c"
 
 typealias JSONStandard = [String: AnyObject]
 

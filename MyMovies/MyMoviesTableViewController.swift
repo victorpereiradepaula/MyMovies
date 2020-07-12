@@ -11,22 +11,25 @@ import RealmSwift
 
 class MyMoviesTableViewController: UITableViewController {
     
-    let detailsViewController = DetailsViewController()
-    var movies: [Movie]!
+    private lazy var detailsViewController = DetailsViewController()
+    var movies: [Movie] = []
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
         navigationItem.title = "Favoritos"
         tableView.register(MyMoviesTableViewCell.self, forCellReuseIdentifier: "myMoviesCellIdentifier")
     }
     
     override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
         loadRealmMovies()
         tableView.reloadData()
     }
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return movies?.count ?? 0
+        return movies.count
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -88,7 +91,6 @@ class MyMoviesTableViewController: UITableViewController {
     }
     
     func loadRealmMovies() {
-        movies = []
         let realm = try! Realm()
         movies.append(contentsOf: realm.objects(Movie.self))
         if movies.count == 0 {

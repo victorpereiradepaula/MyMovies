@@ -16,13 +16,11 @@
 //
 ////////////////////////////////////////////////////////////////////////////
 
-#import <Foundation/Foundation.h>
-
 #import <Realm/RLMCollection.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class RLMObject, RLMRealm, RLMResults<RLMObjectType: RLMObject *>, RLMNotificationToken;
+@class RLMObject, RLMResults<RLMObjectType>;
 
 /**
  `RLMArray` is the container type in Realm used to define to-many relationships.
@@ -57,7 +55,7 @@ NS_ASSUME_NONNULL_BEGIN
  object. Instead, you can call the mutation methods on the `RLMArray` directly.
  */
 
-@interface RLMArray<RLMObjectType: RLMObject *> : NSObject<RLMCollection, NSFastEnumeration>
+@interface RLMArray<RLMObjectType> : NSObject<RLMCollection, NSFastEnumeration>
 
 #pragma mark - Properties
 
@@ -67,9 +65,21 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, assign) NSUInteger count;
 
 /**
- The class name (i.e. type) of the `RLMObject`s contained in the array.
+ The type of the objects in the array.
  */
-@property (nonatomic, readonly, copy) NSString *objectClassName;
+@property (nonatomic, readonly, assign) RLMPropertyType type;
+
+/**
+ Indicates whether the objects in the collection can be `nil`.
+ */
+@property (nonatomic, readonly, getter = isOptional) BOOL optional;
+
+/**
+ The class name  of the objects contained in the array.
+
+ Will be `nil` if `type` is not RLMPropertyTypeObject.
+ */
+@property (nonatomic, readonly, copy, nullable) NSString *objectClassName;
 
 /**
  The Realm which manages the array. Returns `nil` for unmanaged arrays.
@@ -81,6 +91,15 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, readonly, getter = isInvalidated) BOOL invalidated;
 
+/**
+ Indicates if the array is frozen.
+
+ Frozen arrays are immutable and can be accessed from any thread. Frozen arrays
+ are created by calling `-freeze` on a managed live array. Unmanaged arrays are
+ never frozen.
+ */
+@property (nonatomic, readonly, getter = isFrozen) BOOL frozen;
+
 #pragma mark - Accessing Objects from an Array
 
 /**
@@ -88,7 +107,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  @param index   The index to look up.
 
- @return An `RLMObject` of the type contained in the array.
+ @return An object of the type contained in the array.
  */
 - (RLMObjectType)objectAtIndex:(NSUInteger)index;
 
@@ -97,7 +116,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  Returns `nil` if called on an empty array.
 
- @return An `RLMObject` of the type contained in the array.
+ @return An object of the type contained in the array.
  */
 - (nullable RLMObjectType)firstObject;
 
@@ -106,7 +125,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  Returns `nil` if called on an empty array.
 
- @return An `RLMObject` of the type contained in the array.
+ @return An object of the type contained in the array.
  */
 - (nullable RLMObjectType)lastObject;
 
@@ -119,7 +138,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  @warning This method may only be called during a write transaction.
 
- @param object  An `RLMObject` of the type contained in the array.
+ @param object  An object of the type contained in the array.
  */
 - (void)addObject:(RLMObjectType)object;
 
@@ -140,7 +159,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  @warning This method may only be called during a write transaction.
 
- @param anObject  An `RLMObject` of the type contained in the array.
+ @param anObject  An object of the type contained in the array.
  @param index   The index at which to insert the object.
  */
 - (void)insertObject:(RLMObjectType)anObject atIndex:(NSUInteger)index;
@@ -158,6 +177,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Removes the last object in the array.
+
+ This is a no-op if the array is already empty.
 
  @warning This method may only be called during a write transaction.
 */
@@ -272,22 +293,20 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  Returns a sorted `RLMResults` from the array.
 
- @param property    The property name to sort by.
- @param ascending   The direction to sort in.
-
- @return    An `RLMResults` sorted by the specified property.
- */
-- (RLMResults<RLMObjectType> *)sortedResultsUsingProperty:(NSString *)property ascending:(BOOL)ascending
-    __deprecated_msg("Use `-sortedResultsUsingKeyPath:ascending:`");
-
-/**
- Returns a sorted `RLMResults` from the array.
-
  @param properties  An array of `RLMSortDescriptor`s to sort by.
 
  @return    An `RLMResults` sorted by the specified properties.
  */
 - (RLMResults<RLMObjectType> *)sortedResultsUsingDescriptors:(NSArray<RLMSortDescriptor *> *)properties;
+
+/**
+ Returns a distinct `RLMResults` from the array.
+
+ @param keyPaths     The key paths to distinct on.
+
+ @return    An `RLMResults` with the distinct values of the keypath(s).
+ */
+- (RLMResults<RLMObjectType> *)distinctResultsUsingKeyPaths:(NSArray<NSString *> *)keyPaths;
 
 /// :nodoc:
 - (RLMObjectType)objectAtIndexedSubscript:(NSUInteger)index;
@@ -342,30 +361,148 @@ NS_ASSUME_NONNULL_BEGIN
      // end of run loop execution context
 
  You must retain the returned token for as long as you want updates to continue
- to be sent to the block. To stop receiving updates, call `-stop` on the token.
+ to be sent to the block. To stop receiving updates, call `-invalidate` on the token.
 
  @warning This method cannot be called during a write transaction, or when the
           containing Realm is read-only.
- @warning This method may only be called on a managed array.
+ @warning This method may only be called on a non-frozen managed array.
 
  @param block The block to be called each time the array changes.
  @return A token which must be held for as long as you want updates to be delivered.
  */
-- (RLMNotificationToken *)addNotificationBlock:(void (^)(RLMArray<RLMObjectType> *__nullable array,
-                                                         RLMCollectionChange *__nullable changes,
-                                                         NSError *__nullable error))block __attribute__((warn_unused_result));
+- (RLMNotificationToken *)addNotificationBlock:(void (^)(RLMArray<RLMObjectType> *_Nullable array,
+                                                         RLMCollectionChange *_Nullable changes,
+                                                         NSError *_Nullable error))block
+__attribute__((warn_unused_result));
+
+/**
+ Registers a block to be called each time the array changes.
+
+ The block will be asynchronously called with the initial array, and then
+ called again after each write transaction which changes any of the objects in
+ the array, which objects are in the results, or the order of the objects in the
+ array.
+
+ The `changes` parameter will be `nil` the first time the block is called.
+ For each call after that, it will contain information about
+ which rows in the array were added, removed or modified. If a write transaction
+ did not modify any objects in the array, the block is not called at all.
+ See the `RLMCollectionChange` documentation for information on how the changes
+ are reported and an example of updating a `UITableView`.
+
+ If an error occurs the block will be called with `nil` for the results
+ parameter and a non-`nil` error. Currently the only errors that can occur are
+ when opening the Realm on the background worker thread.
+
+ Notifications are delivered on the given queue. If the queue is blocked and
+ notifications can't be delivered instantly, multiple notifications may be
+ coalesced into a single notification.
+
+ You must retain the returned token for as long as you want updates to continue
+ to be sent to the block. To stop receiving updates, call `-invalidate` on the token.
+
+ @warning This method cannot be called when the containing Realm is read-only or frozen.
+ @warning The queue must be a serial queue.
+
+ @param block The block to be called whenever a change occurs.
+ @param queue The serial queue to deliver notifications to.
+ @return A token which must be held for as long as you want updates to be delivered.
+ */
+- (RLMNotificationToken *)addNotificationBlock:(void (^)(RLMArray<RLMObjectType> *_Nullable array,
+                                                         RLMCollectionChange *_Nullable changes,
+                                                         NSError *_Nullable error))block
+                                         queue:(nullable dispatch_queue_t)queue
+__attribute__((warn_unused_result));
+
+#pragma mark - Aggregating Property Values
+
+/**
+ Returns the minimum (lowest) value of the given property among all the objects in the array.
+
+     NSNumber *min = [object.arrayProperty minOfProperty:@"age"];
+
+ @warning You cannot use this method on `RLMObject`, `RLMArray`, and `NSData` properties.
+
+ @param property The property whose minimum value is desired. Only properties of
+                 types `int`, `float`, `double`, and `NSDate` are supported.
+
+ @return The minimum value of the property, or `nil` if the array is empty.
+ */
+- (nullable id)minOfProperty:(NSString *)property;
+
+/**
+ Returns the maximum (highest) value of the given property among all the objects in the array.
+
+     NSNumber *max = [object.arrayProperty maxOfProperty:@"age"];
+
+ @warning You cannot use this method on `RLMObject`, `RLMArray`, and `NSData` properties.
+
+ @param property The property whose maximum value is desired. Only properties of
+                 types `int`, `float`, `double`, and `NSDate` are supported.
+
+ @return The maximum value of the property, or `nil` if the array is empty.
+ */
+- (nullable id)maxOfProperty:(NSString *)property;
+
+/**
+ Returns the sum of the values of a given property over all the objects in the array.
+
+     NSNumber *sum = [object.arrayProperty sumOfProperty:@"age"];
+
+ @warning You cannot use this method on `RLMObject`, `RLMArray`, and `NSData` properties.
+
+ @param property The property whose values should be summed. Only properties of
+                 types `int`, `float`, and `double` are supported.
+
+ @return The sum of the given property.
+ */
+- (NSNumber *)sumOfProperty:(NSString *)property;
+
+/**
+ Returns the average value of a given property over the objects in the array.
+
+     NSNumber *average = [object.arrayProperty averageOfProperty:@"age"];
+
+ @warning You cannot use this method on `RLMObject`, `RLMArray`, and `NSData` properties.
+
+ @param property The property whose average value should be calculated. Only
+                 properties of types `int`, `float`, and `double` are supported.
+
+ @return    The average value of the given property, or `nil` if the array is empty.
+ */
+- (nullable NSNumber *)averageOfProperty:(NSString *)property;
+
+#pragma mark - Freeze
+
+/**
+ Returns a frozen (immutable) snapshot of this array.
+
+ The frozen copy is an immutable array which contains the same data as this
+ array currently contains, but will not update when writes are made to the
+ containing Realm. Unlike live arrays, frozen arrays can be accessed from any
+ thread.
+
+ @warning This method cannot be called during a write transaction, or when the
+          containing Realm is read-only.
+ @warning This method may only be called on a managed array.
+ @warning Holding onto a frozen array for an extended period while performing
+          write transaction on the Realm may result in the Realm file growing
+          to large sizes. See `RLMRealmConfiguration.maximumNumberOfActiveVersions`
+          for more information.
+ */
+- (instancetype)freeze;
 
 #pragma mark - Unavailable Methods
 
 /**
  `-[RLMArray init]` is not available because `RLMArray`s cannot be created directly.
- `RLMArray` properties on `RLMObject`s are lazily created when accessed, or can be obtained by querying a Realm.
+ `RLMArray` properties on `RLMObject`s are lazily created when accessed.
  */
 - (instancetype)init __attribute__((unavailable("RLMArrays cannot be created directly")));
 
 /**
  `+[RLMArray new]` is not available because `RLMArray`s cannot be created directly.
- `RLMArray` properties on `RLMObject`s are lazily created when accessed, or can be obtained by querying a Realm.
+ `RLMArray` properties on `RLMObject`s are lazily created when accessed.
  */
 + (instancetype)new __attribute__((unavailable("RLMArrays cannot be created directly")));
 

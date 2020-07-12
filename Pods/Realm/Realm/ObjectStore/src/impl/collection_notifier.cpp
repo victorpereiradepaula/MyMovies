@@ -21,34 +21,60 @@
 #include "impl/realm_coordinator.hpp"
 #include "shared_realm.hpp"
 
-#include <realm/group_shared.hpp>
-#include <realm/link_view.hpp>
+#include <realm/db.hpp>
 
 using namespace realm;
 using namespace realm::_impl;
 
-std::function<bool (size_t)>
-CollectionNotifier::get_modification_checker(TransactionChangeInfo const& info,
-                                             Table const& root_table)
+bool CollectionNotifier::all_related_tables_covered(const TableVersions& versions)
 {
+    if (m_related_tables.size() > versions.size()) {
+        return false;
+    }
+    auto first = versions.begin();
+    auto last = versions.end();
+    for (auto& it : m_related_tables) {
+        TableKey tk{it.table_key};
+        auto match = std::find_if(first, last, [tk](auto& elem) {
+            return elem.first == tk;
+        });
+        if (match == last) {
+            // tk not found in versions
+            return false;
+        }
+    }
+    return true;
+}
+
+std::function<bool (ObjectChangeSet::ObjectKeyType)>
+CollectionNotifier::get_modification_checker(TransactionChangeInfo const& info,
+                                             ConstTableRef root_table)
+{
+    if (info.schema_changed)
+        set_table(root_table);
+
     // First check if any of the tables accessible from the root table were
     // actually modified. This can be false if there were only insertions, or
     // deletions which were not linked to by any row in the linking table
     auto table_modified = [&](auto& tbl) {
-        return tbl.table_ndx < info.tables.size()
-            && !info.tables[tbl.table_ndx].modifications.empty();
+        auto it = info.tables.find(tbl.table_key.value);
+        return it != info.tables.end() && !it->second.modifications_empty();
     };
     if (!any_of(begin(m_related_tables), end(m_related_tables), table_modified)) {
-        return [](size_t) { return false; };
+        return [](ObjectChangeSet::ObjectKeyType) { return false; };
+    }
+    if (m_related_tables.size() == 1) {
+        auto& object_set = info.tables.find(m_related_tables[0].table_key.value)->second;
+        return [&](ObjectChangeSet::ObjectKeyType object_key) { return object_set.modifications_contains(object_key); };
     }
 
-    return DeepChangeChecker(info, root_table, m_related_tables);
+    return DeepChangeChecker(info, *root_table, m_related_tables);
 }
 
 void DeepChangeChecker::find_related_tables(std::vector<RelatedTable>& out, Table const& table)
 {
-    auto table_ndx = table.get_index_in_group();
-    if (any_of(begin(out), end(out), [=](auto& tbl) { return tbl.table_ndx == table_ndx; }))
+    auto table_key = table.get_key();
+    if (any_of(begin(out), end(out), [=](auto& tbl) { return tbl.table_key == table_key; }))
         return;
 
     // We need to add this table to `out` before recurring so that the check
@@ -56,13 +82,13 @@ void DeepChangeChecker::find_related_tables(std::vector<RelatedTable>& out, Tabl
     // because the recursive calls may resize `out`, so instead look it up by
     // index every time
     size_t out_index = out.size();
-    out.push_back({table_ndx, {}});
+    out.push_back({table_key, {}});
 
-    for (size_t i = 0, count = table.get_column_count(); i != count; ++i) {
-        auto type = table.get_column_type(i);
+    for (auto col_key : table.get_column_keys()) {
+        auto type = table.get_column_type(col_key);
         if (type == type_Link || type == type_LinkList) {
-            out[out_index].links.push_back({i, type == type_LinkList});
-            find_related_tables(out, *table.get_link_target(i));
+            out[out_index].links.push_back({col_key.value, type == type_LinkList});
+            find_related_tables(out, *table.get_link_target(col_key));
         }
     }
 }
@@ -72,90 +98,98 @@ DeepChangeChecker::DeepChangeChecker(TransactionChangeInfo const& info,
                                      std::vector<RelatedTable> const& related_tables)
 : m_info(info)
 , m_root_table(root_table)
-, m_root_table_ndx(root_table.get_index_in_group())
-, m_root_modifications(m_root_table_ndx < info.tables.size() ? &info.tables[m_root_table_ndx].modifications : nullptr)
+, m_root_table_key(root_table.get_key().value)
+, m_root_object_changes([&] {
+    auto it = info.tables.find(m_root_table_key.value);
+    return it != info.tables.end() ? &it->second : nullptr;
+}())
 , m_related_tables(related_tables)
 {
 }
 
-bool DeepChangeChecker::check_outgoing_links(size_t table_ndx,
-                                             Table const& table,
-                                             size_t row_ndx, size_t depth)
+bool DeepChangeChecker::check_outgoing_links(TableKey table_key, Table const& table,
+                                             int64_t obj_key, size_t depth)
 {
     auto it = find_if(begin(m_related_tables), end(m_related_tables),
-                      [&](auto&& tbl) { return tbl.table_ndx == table_ndx; });
+                      [&](auto&& tbl) { return tbl.table_key == table_key; });
     if (it == m_related_tables.end())
+        return false;
+    if (it->links.empty())
         return false;
 
     // Check if we're already checking if the destination of the link is
     // modified, and if not add it to the stack
-    auto already_checking = [&](size_t col) {
-        for (auto p = m_current_path.begin(); p < m_current_path.begin() + depth; ++p) {
-            if (p->table == table_ndx && p->row == row_ndx && p->col == col)
-                return true;
+    auto already_checking = [&](int64_t col) {
+        auto end = m_current_path.begin() + depth;
+        auto match = std::find_if(m_current_path.begin(), end, [&](auto& p) {
+            return p.obj_key == obj_key && p.col_key == col;
+        });
+        if (match != end) {
+            for (; match < end; ++match) match->depth_exceeded = true;
+            return true;
         }
-        m_current_path[depth] = {table_ndx, row_ndx, col, false};
+        m_current_path[depth] = {obj_key, col, false};
         return false;
     };
 
-    for (auto const& link : it->links) {
-        if (already_checking(link.col_ndx))
-            continue;
+    ConstObj obj = table.get_object(ObjKey(obj_key));
+    auto linked_object_changed = [&](OutgoingLink const& link) {
+        if (already_checking(link.col_key))
+            return false;
         if (!link.is_list) {
-            if (table.is_null_link(link.col_ndx, row_ndx))
-                continue;
-            auto dst = table.get_link(link.col_ndx, row_ndx);
-            return check_row(*table.get_link_target(link.col_ndx), dst, depth + 1);
+            if (obj.is_null(ColKey(link.col_key)))
+                return false;
+            auto dst = obj.get<ObjKey>(ColKey(link.col_key)).value;
+            return check_row(*table.get_link_target(ColKey(link.col_key)), dst, depth + 1);
         }
 
-        auto& target = *table.get_link_target(link.col_ndx);
-        auto lvr = table.get_linklist(link.col_ndx, row_ndx);
-        for (size_t j = 0, size = lvr->size(); j < size; ++j) {
-            size_t dst = lvr->get(j).get_index();
-            if (check_row(target, dst, depth + 1))
-                return true;
-        }
-    }
+        auto& target = *table.get_link_target(ColKey(link.col_key));
+        auto lvr = obj.get_linklist(ColKey(link.col_key));
+        return std::any_of(lvr.begin(), lvr.end(),
+                           [&, this](auto key) { return this->check_row(target, key.value, depth + 1); });
+    };
 
-    return false;
+    return std::any_of(begin(it->links), end(it->links), linked_object_changed);
 }
 
-bool DeepChangeChecker::check_row(Table const& table, size_t idx, size_t depth)
+bool DeepChangeChecker::check_row(Table const& table, ObjKeyType key, size_t depth)
 {
     // Arbitrary upper limit on the maximum depth to search
     if (depth >= m_current_path.size()) {
         // Don't mark any of the intermediate rows checked along the path as
         // not modified, as a search starting from them might hit a modification
-        for (size_t i = 1; i < m_current_path.size(); ++i)
+        for (size_t i = 0; i < m_current_path.size(); ++i)
             m_current_path[i].depth_exceeded = true;
         return false;
     }
 
-    size_t table_ndx = table.get_index_in_group();
-    if (depth > 0 && table_ndx < m_info.tables.size() && m_info.tables[table_ndx].modifications.contains(idx))
-        return true;
-
-    if (m_not_modified.size() <= table_ndx)
-        m_not_modified.resize(table_ndx + 1);
-    if (m_not_modified[table_ndx].contains(idx))
+    TableKey table_key = table.get_key();
+    if (depth > 0) {
+        auto it = m_info.tables.find(table_key.value);
+        if (it != m_info.tables.end() && it->second.modifications_contains(key))
+            return true;
+    }
+    auto& not_modified = m_not_modified[table_key.value];
+    auto it = not_modified.find(key);
+    if (it != not_modified.end())
         return false;
 
-    bool ret = check_outgoing_links(table_ndx, table, idx, depth);
-    if (!ret && !m_current_path[depth].depth_exceeded)
-        m_not_modified[table_ndx].add(idx);
+    bool ret = check_outgoing_links(table_key, table, key, depth);
+    if (!ret && (depth == 0 || !m_current_path[depth - 1].depth_exceeded))
+        not_modified.insert(key);
     return ret;
 }
 
-bool DeepChangeChecker::operator()(size_t ndx)
+bool DeepChangeChecker::operator()(ObjKeyType key)
 {
-    if (m_root_modifications && m_root_modifications->contains(ndx))
+    if (m_root_object_changes && m_root_object_changes->modifications_contains(key))
         return true;
-    return check_row(m_root_table, ndx, 0);
+    return check_row(m_root_table, key, 0);
 }
 
 CollectionNotifier::CollectionNotifier(std::shared_ptr<Realm> realm)
 : m_realm(std::move(realm))
-, m_sg_version(Realm::Internal::get_shared_group(*m_realm).get_version_of_current_transaction())
+, m_sg_version(Realm::Internal::get_transaction(*m_realm).get_version_of_current_transaction())
 {
 }
 
@@ -166,22 +200,17 @@ CollectionNotifier::~CollectionNotifier()
     unregister();
 }
 
-size_t CollectionNotifier::add_callback(CollectionChangeCallback callback)
+void CollectionNotifier::release_data() noexcept
+{
+    m_sg = nullptr;
+}
+
+uint64_t CollectionNotifier::add_callback(CollectionChangeCallback callback)
 {
     m_realm->verify_thread();
 
-    auto next_token = [=] {
-        size_t token = 0;
-        for (auto& callback : m_callbacks) {
-            if (token <= callback.token) {
-                token = callback.token + 1;
-            }
-        }
-        return token;
-    };
-
-    std::lock_guard<std::mutex> lock(m_callback_mutex);
-    auto token = next_token();
+    util::CheckedLockGuard lock(m_callback_mutex);
+    auto token = m_next_token++;
     m_callbacks.push_back({std::move(callback), {}, {}, token, false, false});
     if (m_callback_index == npos) { // Don't need to wake up if we're already sending notifications
         Realm::Internal::get_coordinator(*m_realm).wake_up_notifier_worker();
@@ -190,22 +219,24 @@ size_t CollectionNotifier::add_callback(CollectionChangeCallback callback)
     return token;
 }
 
-void CollectionNotifier::remove_callback(size_t token)
+void CollectionNotifier::remove_callback(uint64_t token)
 {
     // the callback needs to be destroyed after releasing the lock as destroying
     // it could cause user code to be called
     Callback old;
     {
-        std::lock_guard<std::mutex> lock(m_callback_mutex);
+        util::CheckedLockGuard lock(m_callback_mutex);
         auto it = find_callback(token);
         if (it == end(m_callbacks)) {
             return;
         }
 
         size_t idx = distance(begin(m_callbacks), it);
-        if (m_callback_index != npos && m_callback_index >= idx) {
-            --m_callback_index;
+        if (m_callback_index != npos) {
+            if (m_callback_index >= idx)
+                --m_callback_index;
         }
+        --m_callback_count;
 
         old = std::move(*it);
         m_callbacks.erase(it);
@@ -214,7 +245,7 @@ void CollectionNotifier::remove_callback(size_t token)
     }
 }
 
-void CollectionNotifier::suppress_next_notification(size_t token)
+void CollectionNotifier::suppress_next_notification(uint64_t token)
 {
     {
         std::lock_guard<std::mutex> lock(m_realm_mutex);
@@ -223,14 +254,14 @@ void CollectionNotifier::suppress_next_notification(size_t token)
         m_realm->verify_in_write();
     }
 
-    std::lock_guard<std::mutex> lock(m_callback_mutex);
+    util::CheckedLockGuard lock(m_callback_mutex);
     auto it = find_callback(token);
     if (it != end(m_callbacks)) {
         it->skip_next = true;
     }
 }
 
-std::vector<CollectionNotifier::Callback>::iterator CollectionNotifier::find_callback(size_t token)
+std::vector<CollectionNotifier::Callback>::iterator CollectionNotifier::find_callback(uint64_t token)
 {
     REALM_ASSERT(m_error || m_callbacks.size() > 0);
 
@@ -258,10 +289,10 @@ std::unique_lock<std::mutex> CollectionNotifier::lock_target()
     return std::unique_lock<std::mutex>{m_realm_mutex};
 }
 
-void CollectionNotifier::set_table(Table const& table)
+void CollectionNotifier::set_table(ConstTableRef table)
 {
     m_related_tables.clear();
-    DeepChangeChecker::find_related_tables(m_related_tables, table);
+    DeepChangeChecker::find_related_tables(m_related_tables, *table);
 }
 
 void CollectionNotifier::add_required_change_info(TransactionChangeInfo& info)
@@ -270,14 +301,9 @@ void CollectionNotifier::add_required_change_info(TransactionChangeInfo& info)
         return;
     }
 
-    auto max = max_element(begin(m_related_tables), end(m_related_tables),
-                           [](auto&& a, auto&& b) { return a.table_ndx < b.table_ndx; });
-
-    if (max->table_ndx >= info.table_modifications_needed.size())
-        info.table_modifications_needed.resize(max->table_ndx + 1, false);
-    for (auto& tbl : m_related_tables) {
-        info.table_modifications_needed[tbl.table_ndx] = true;
-    }
+    info.tables.reserve(m_related_tables.size());
+    for (auto& tbl : m_related_tables)
+        info.tables[tbl.table_key.value];
 }
 
 void CollectionNotifier::prepare_handover()
@@ -285,10 +311,12 @@ void CollectionNotifier::prepare_handover()
     REALM_ASSERT(m_sg);
     m_sg_version = m_sg->get_version_of_current_transaction();
     do_prepare_handover(*m_sg);
+    add_changes(std::move(m_change));
+    REALM_ASSERT(m_change.empty());
     m_has_run = true;
 
 #ifdef REALM_DEBUG
-    std::lock_guard<std::mutex> lock(m_callback_mutex);
+    util::CheckedLockGuard lock(m_callback_mutex);
     for (auto& callback : m_callbacks)
         REALM_ASSERT(!callback.skip_next);
 #endif
@@ -305,7 +333,7 @@ void CollectionNotifier::before_advance()
         // acquire a local reference to the callback so that removing the
         // callback from within it can't result in a dangling pointer
         auto cb = callback.fn;
-        lock.unlock();
+        lock.unlock_unchecked();
         cb.before(changes);
     });
 }
@@ -322,25 +350,28 @@ void CollectionNotifier::after_advance()
         // acquire a local reference to the callback so that removing the
         // callback from within it can't result in a dangling pointer
         auto cb = callback.fn;
-        lock.unlock();
+        lock.unlock_unchecked();
         cb.after(changes);
     });
 }
 
 void CollectionNotifier::deliver_error(std::exception_ptr error)
 {
-    for_each_callback([&](auto& lock, auto& callback) {
+    // Don't complain about double-unregistering callbacks
+    m_error = true;
+
+    m_callback_count = m_callbacks.size();
+    for_each_callback([this, &error](auto& lock, auto& callback) {
         // acquire a local reference to the callback so that removing the
         // callback from within it can't result in a dangling pointer
-        auto cb = callback.fn;
-        lock.unlock();
+        auto cb = std::move(callback.fn);
+        auto token = callback.token;
+        lock.unlock_unchecked();
         cb.error(error);
-    });
 
-    // Remove all the callbacks as we never need to call anything ever again
-    // after delivering an error
-    m_callbacks.clear();
-    m_error = true;
+        // We never want to call the callback again after this, so just remove it
+        this->remove_callback(token);
+    });
 }
 
 bool CollectionNotifier::is_for_realm(Realm& realm) const noexcept
@@ -353,43 +384,41 @@ bool CollectionNotifier::package_for_delivery()
 {
     if (!prepare_to_deliver())
         return false;
-    std::lock_guard<std::mutex> l(m_callback_mutex);
+    util::CheckedLockGuard lock(m_callback_mutex);
     for (auto& callback : m_callbacks)
         callback.changes_to_deliver = std::move(callback.accumulated_changes).finalize();
+    m_callback_count = m_callbacks.size();
     return true;
 }
 
 template<typename Fn>
 void CollectionNotifier::for_each_callback(Fn&& fn)
 {
-    std::unique_lock<std::mutex> callback_lock(m_callback_mutex);
-    for (++m_callback_index; m_callback_index < m_callbacks.size(); ++m_callback_index) {
+    util::CheckedUniqueLock callback_lock(m_callback_mutex);
+    REALM_ASSERT_DEBUG(m_callback_count <= m_callbacks.size());
+    for (++m_callback_index; m_callback_index < m_callback_count; ++m_callback_index) {
         fn(callback_lock, m_callbacks[m_callback_index]);
         if (!callback_lock.owns_lock())
-            callback_lock.lock();
+            callback_lock.lock_unchecked();
     }
 
     m_callback_index = npos;
 }
 
-void CollectionNotifier::attach_to(SharedGroup& sg)
+void CollectionNotifier::attach_to(std::shared_ptr<Transaction> sg)
 {
-    REALM_ASSERT(!m_sg);
-
-    m_sg = &sg;
-    do_attach_to(sg);
+    do_attach_to(*sg);
+    m_sg = std::move(sg);
 }
 
-void CollectionNotifier::detach()
+Transaction& CollectionNotifier::source_shared_group()
 {
-    REALM_ASSERT(m_sg);
-    do_detach_from(*m_sg);
-    m_sg = nullptr;
+    return Realm::Internal::get_transaction(*m_realm);
 }
 
 void CollectionNotifier::add_changes(CollectionChangeBuilder change)
 {
-    std::lock_guard<std::mutex> lock(m_callback_mutex);
+    util::CheckedLockGuard lock(m_callback_mutex);
     for (auto& callback : m_callbacks) {
         if (callback.skip_next) {
             REALM_ASSERT_DEBUG(callback.accumulated_changes.empty());
@@ -413,7 +442,8 @@ NotifierPackage::NotifierPackage(std::exception_ptr error,
 {
 }
 
-void NotifierPackage::package_and_wait(util::Optional<VersionID::version_type> target_version)
+// Clang TSE seems to not like returning a unique_lock from a function
+void NotifierPackage::package_and_wait(util::Optional<VersionID::version_type> target_version) NO_THREAD_SAFETY_ANALYSIS
 {
     if (!m_coordinator || m_error || !*this)
         return;
@@ -452,24 +482,13 @@ void NotifierPackage::before_advance()
         notifier->before_advance();
 }
 
-void NotifierPackage::deliver(SharedGroup& sg)
+void NotifierPackage::after_advance()
 {
     if (m_error) {
         for (auto& notifier : m_notifiers)
             notifier->deliver_error(m_error);
         return;
     }
-    // Can't deliver while in a write transaction
-    if (sg.get_transact_stage() != SharedGroup::transact_Reading)
-        return;
-    for (auto& notifier : m_notifiers)
-        notifier->deliver(sg);
-}
-
-void NotifierPackage::after_advance()
-{
-    if (m_error)
-        return;
     for (auto& notifier : m_notifiers)
         notifier->after_advance();
 }

@@ -19,10 +19,11 @@
 #ifndef REALM_VERSION_ID_HPP
 #define REALM_VERSION_ID_HPP
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__STDC_LIMIT_MACROS)
 #define __STDC_LIMIT_MACROS
 #endif
 
+#include <cstdint>
 #include <limits>
 
 namespace realm {
@@ -41,27 +42,27 @@ struct VersionID {
         index = initial_index;
     }
 
-    bool operator==(const VersionID& other)
+    bool operator==(const VersionID& other) const
     {
         return version == other.version;
     }
-    bool operator!=(const VersionID& other)
+    bool operator!=(const VersionID& other) const
     {
         return version != other.version;
     }
-    bool operator<(const VersionID& other)
+    bool operator<(const VersionID& other) const
     {
         return version < other.version;
     }
-    bool operator<=(const VersionID& other)
+    bool operator<=(const VersionID& other) const
     {
         return version <= other.version;
     }
-    bool operator>(const VersionID& other)
+    bool operator>(const VersionID& other) const
     {
         return version > other.version;
     }
-    bool operator>=(const VersionID& other)
+    bool operator>=(const VersionID& other) const
     {
         return version >= other.version;
     }

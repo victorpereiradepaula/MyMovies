@@ -11,19 +11,18 @@ import  UIKit
 
 class Movie: Object {
     
-    dynamic var imdbID: String = ""
-    dynamic var title: String = ""
-    dynamic var year: String = ""
-    dynamic var genre: String = ""
-    dynamic var director: String = ""
-    dynamic var language: String = ""
-    dynamic var actors: String = ""
-    dynamic var awards: String = ""
-    dynamic var plot: String = ""
-    dynamic var poster = NSData()
+    @objc dynamic var imdbID: String = ""
+    @objc dynamic var title: String = ""
+    @objc dynamic var year: String = ""
+    @objc dynamic var genre: String = ""
+    @objc dynamic var director: String = ""
+    @objc dynamic var language: String = ""
+    @objc dynamic var actors: String = ""
+    @objc dynamic var awards: String = ""
+    @objc dynamic var plot: String = ""
+    @objc dynamic var poster = NSData()
     
     override static func primaryKey() -> String? {
         return "imdbID"
     }
-    
 }

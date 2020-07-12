@@ -98,11 +98,11 @@ class DetailsViewController: UIViewController {
 }
 
 extension DetailsViewController {
-    func addFavorite() {
+    @objc func addFavorite() {
         if canFavorite {
             let realm = try! Realm()
             try! realm.write {
-                realm.add(movie, update: true)
+                realm.add(movie)
             }
             let setFavoriteAlert = UIAlertController(title: "Favorito adicionado", message: "\(movie.title) adicionado aos favoritos.", preferredStyle: .alert)
             setFavoriteAlert.addAction(UIAlertAction(title: "Ok", style: .default, handler: nil))
@@ -115,7 +115,7 @@ extension DetailsViewController {
         }
     }
     
-    func unfavorite() {
+    @objc func unfavorite() {
         let setFavoriteAlert = UIAlertController(title: "Favorito removido", message: "Favorito removido com sucesso.", preferredStyle: .alert)
         setFavoriteAlert.addAction(UIAlertAction(title:"Ok", style:UIAlertActionStyle.default){ action in
             let realm = try! Realm()
